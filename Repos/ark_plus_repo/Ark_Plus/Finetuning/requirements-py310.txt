@@ -1,0 +1,16 @@
+numpy==1.23.5
+tqdm
+scikit-image
+scikit-learn
+simpleitk
+scipy
+pydicom
+yacs
+einops
+opencv-python-headless
+timm==0.5.4
+transformers
+albumentations==0.4.3
+imgaug
+Pillow
+pretrainedmodels

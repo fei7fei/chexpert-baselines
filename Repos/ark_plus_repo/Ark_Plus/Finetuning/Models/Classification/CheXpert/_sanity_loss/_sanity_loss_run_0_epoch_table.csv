@@ -1,0 +1,2 @@
+Epoch,train_loss,val_loss,F1,AUC,recall,accuracy
+1,0.5859,0.5811,0.0889,0.4701,0.1,0.62

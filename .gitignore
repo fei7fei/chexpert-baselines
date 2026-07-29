@@ -1,0 +1,10 @@
+.venv/
+_pipcache/
+_tmp/
+__pycache__/
+*.pyc
+*.pth.tar
+*.pt
+*.ckpt
+.ipynb_checkpoints/
+mimic-cxr-2.0.0-train.csv
