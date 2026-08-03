@@ -24,6 +24,39 @@ from utils import load_swin_pretrained
 from transformers import AutoModel
 
 
+def _swin_window_size(input_size, default=7):
+    # Swin's window_size must evenly divide the feature-map spatial size at every stage
+    # (input/4, /8, /16, /32). window_size=7 is the ImageNet-224 convention (224/32=7,
+    # divides cleanly); the protocol's 320px input (320/32=10) doesn't divide by 7, but
+    # does divide cleanly by 5 at every stage (80/5, 40/5, 20/5, 10/5 all integers).
+    if input_size == 320:
+        return 5
+    return default
+
+
+def _load_swin_pretrained_filtered(model, pretrained_model_name):
+    # Loads a named timm Swin checkpoint (trained at window_size=7) into a model that may
+    # have a different window_size (e.g. 5, for 320px). relative_position_bias_table/index
+    # and attn_mask depend only on window_size, not img_size, so they don't transfer across
+    # a window_size change -- everything else (patch_embed, attention QKV/proj, MLP, norms)
+    # does. PyTorch's strict=False only tolerates missing/unexpected keys, not shape
+    # mismatches for a key present on both sides, so those are filtered out first.
+    # Verified locally: only ~0.4% of params (exactly the window-geometry buffers) are
+    # affected; the bulk of pretrained weights transfer correctly.
+    pretrained = timm.create_model(pretrained_model_name, num_classes=model.head.out_features, pretrained=True)
+    pretrained_sd = pretrained.state_dict()
+    target_sd = model.state_dict()
+    filtered_sd = {k: v for k, v in pretrained_sd.items() if k in target_sd and target_sd[k].shape == v.shape}
+    dropped = [k for k in pretrained_sd if k not in filtered_sd]
+    unexpected_names = [k for k in dropped if not any(s in k for s in ("relative_position_bias_table", "relative_position_index", "attn_mask"))]
+    assert not unexpected_names, f"Unexpected keys dropped during filtered Swin load (not window-geometry): {unexpected_names}"
+    model.load_state_dict(filtered_sd, strict=False)
+    print(f"Loaded {pretrained_model_name} into a window_size={model.layers[0].blocks[0].attn.window_size[0]} "
+          f"architecture -- dropped {len(dropped)} window-geometry keys (relative position bias/index, attn masks), "
+          f"kept everything else.")
+    return model
+
+
 class RadDinoClassifier(nn.Module):
     """RAD-DINO (microsoft/rad-dino, a DINOv2-based chest X-ray encoder from Hugging
     Face) is encoder-only -- no classification head -- so this wraps it with a plain
@@ -35,7 +68,10 @@ class RadDinoClassifier(nn.Module):
         self.head = nn.Linear(self.encoder.config.hidden_size, num_classes)
 
     def forward(self, x):
-        out = self.encoder(pixel_values=x)
+        # interpolate_pos_encoding lets this run at any input resolution (not just the
+        # native 518px) by bicubic-resizing the position embeddings -- needed for the
+        # protocol's uniform 320px input across all models.
+        out = self.encoder(pixel_values=x, interpolate_pos_encoding=True)
         feat = out.pooler_output if getattr(out, "pooler_output", None) is not None else out.last_hidden_state[:, 0]
         return self.head(feat)
 
@@ -113,23 +149,36 @@ def build_classification_model(args):
         
         elif args.model_name.lower() == "swin_large":
             model = SwinTransformer(num_classes=args.num_class, img_size = args.input_size,
-                patch_size=4, window_size=7, embed_dim=192, depths=(2, 2, 18, 2), num_heads=(6, 12, 24, 48))
-            
+                patch_size=4, window_size=_swin_window_size(args.input_size), embed_dim=192, depths=(2, 2, 18, 2), num_heads=(6, 12, 24, 48))
+
         elif args.model_name.lower() == "swin_large_384":
             model = SwinTransformer(num_classes=args.num_class, img_size = args.input_size, 
                 patch_size=4, window_size=12, embed_dim=192, depths=(2, 2, 18, 2), num_heads=(6, 12, 24, 48))
 
-        elif args.model_name.lower() == "swin_base": 
+        elif args.model_name.lower() == "swin_base":
             if args.init.lower() =="random":
                 if args.input_size == 448:
                     model = SwinTransformer(num_classes=args.num_class, img_size = args.input_size,
                         patch_size=4, window_size=7, embed_dim=128, depths=(2, 2, 18, 2), num_heads=(4, 8, 16, 32))
+                elif args.input_size == 320:
+                    model = SwinTransformer(num_classes=args.num_class, img_size = args.input_size,
+                        patch_size=4, window_size=5, embed_dim=128, depths=(2, 2, 18, 2), num_heads=(4, 8, 16, 32))
                 else:
                     model = timm.create_model('swin_base_patch4_window7_224_in22k', num_classes=args.num_class, pretrained=False)
             elif args.init.lower() =="imagenet_21kto1k":
-                model = timm.create_model('swin_base_patch4_window7_224', num_classes=args.num_class, pretrained=True)
+                if args.input_size == 320:
+                    model = SwinTransformer(num_classes=args.num_class, img_size = args.input_size,
+                        patch_size=4, window_size=5, embed_dim=128, depths=(2, 2, 18, 2), num_heads=(4, 8, 16, 32))
+                    _load_swin_pretrained_filtered(model, 'swin_base_patch4_window7_224')
+                else:
+                    model = timm.create_model('swin_base_patch4_window7_224', num_classes=args.num_class, pretrained=True)
             elif args.init.lower() =="imagenet_21k":
-                model = timm.create_model('swin_base_patch4_window7_224_in22k', num_classes=args.num_class, pretrained=True)
+                if args.input_size == 320:
+                    model = SwinTransformer(num_classes=args.num_class, img_size = args.input_size,
+                        patch_size=4, window_size=5, embed_dim=128, depths=(2, 2, 18, 2), num_heads=(4, 8, 16, 32))
+                    _load_swin_pretrained_filtered(model, 'swin_base_patch4_window7_224_in22k')
+                else:
+                    model = timm.create_model('swin_base_patch4_window7_224_in22k', num_classes=args.num_class, pretrained=True)
             
         elif args.model_name.lower() == "swin_tiny": 
             if args.init.lower() =="random":

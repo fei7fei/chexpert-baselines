@@ -22,6 +22,97 @@ from albumentations import (
     IAAAdditiveGaussianNoise,GaussNoise,OpticalDistortion,RandomSizedCrop
 )
 
+import re
+import pandas as pd
+from sklearn.model_selection import train_test_split as _protocol_train_test_split
+
+# Fixed, independent of any training seed -- every model/run must see the identical
+# held-out-test/ablation-subset patient partition or the cross-model comparison is void.
+PROTOCOL_SPLIT_SEED = 42
+PROTOCOL_HELD_OUT_TEST_FRAC = 0.15
+PROTOCOL_ABLATION_FRAC = 0.20
+
+
+def _protocol_extract_patient_id(path):
+    m = re.search(r'(patient\d+)', path)
+    assert m, f"couldn't find a patientNNNNN component in path: {path}"
+    return m.group(1)
+
+
+def build_protocol_splits(train_csv_path, competition_cols, cache_path=None,
+                           held_out_test_frac=PROTOCOL_HELD_OUT_TEST_FRAC,
+                           ablation_frac=PROTOCOL_ABLATION_FRAC,
+                           split_seed=PROTOCOL_SPLIT_SEED):
+    """Patient-level (never image-level) split of the official CheXpert train set into:
+      - train_pool: everything not held out (this is what actually gets trained on)
+      - held_out_test: a fixed 15% of patients, carved out for final reporting -- the official
+        234-study valid.csv is used for threshold tuning/model selection instead (it's too small
+        to do both tune thresholds and report on)
+      - ablation_subset: a fixed, stratified ~20% of train_pool's patients, for the cheap
+        single-seed screening tier (subset of train_pool, not disjoint from it)
+
+    Deterministic given the same train_csv_path + seeds, so every model/notebook that calls this
+    independently gets the identical partition without needing shared state. If cache_path is
+    given, the result is written there (and reloaded from there on later calls) as an auditable
+    record of the actual split used -- reviewers can inspect exactly which patients landed where.
+    """
+    if cache_path is not None and os.path.exists(cache_path):
+        _cached = pd.read_csv(cache_path, dtype={"patient": str})
+        return {
+            "train_pool": set(_cached.loc[_cached["train_pool"].astype(bool), "patient"]),
+            "held_out_test": set(_cached.loc[_cached["held_out_test"].astype(bool), "patient"]),
+            "ablation_subset": set(_cached.loc[_cached["ablation_subset"].astype(bool), "patient"]),
+        }
+
+    df = pd.read_csv(train_csv_path)
+    df["_patient"] = df["Path"].apply(_protocol_extract_patient_id)
+    patient_labels = df.groupby("_patient")[competition_cols].apply(lambda g: (g == 1).any().astype(int))
+    patients = patient_labels.index.to_numpy()
+
+    trainpool_patients, heldout_patients = _protocol_train_test_split(
+        patients, test_size=held_out_test_frac, random_state=split_seed)
+
+    pool_labels = patient_labels.loc[trainpool_patients]
+    strata_key = pool_labels.astype(str).agg("".join, axis=1)
+    counts = strata_key.value_counts()
+    rare = counts[counts < 2].index
+    strata_key_safe = strata_key.where(~strata_key.isin(rare), other="rare")
+    if strata_key_safe.nunique() < 2 or strata_key_safe.value_counts().min() < 2:
+        ablation_patients, _ = _protocol_train_test_split(
+            trainpool_patients, train_size=ablation_frac, random_state=split_seed)
+    else:
+        ablation_patients, _ = _protocol_train_test_split(
+            trainpool_patients, train_size=ablation_frac, random_state=split_seed, stratify=strata_key_safe)
+
+    result = {
+        "train_pool": set(trainpool_patients),
+        "held_out_test": set(heldout_patients),
+        "ablation_subset": set(ablation_patients),
+    }
+
+    if cache_path is not None:
+        rows = [{
+            "patient": p,
+            "train_pool": p in result["train_pool"],
+            "held_out_test": p in result["held_out_test"],
+            "ablation_subset": p in result["ablation_subset"],
+        } for p in patients]
+        os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+        pd.DataFrame(rows).to_csv(cache_path, index=False)
+
+    return result
+
+
+def filter_csv_by_patients(csv_path, patient_set, out_path):
+    """Writes a new CSV containing only the rows whose patient ID is in patient_set --
+    lets CheXpert(...) be pointed at a protocol split via file_path exactly like any other
+    CSV, no changes to the Dataset class needed."""
+    df = pd.read_csv(csv_path)
+    df["_patient"] = df["Path"].apply(_protocol_extract_patient_id)
+    subset = df[df["_patient"].isin(patient_set)].drop(columns=["_patient"])
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    subset.to_csv(out_path, index=False)
+    return out_path
 
 
 def build_transform_classification(normalize, crop_size=224, resize=256, mode="train", test_augment=True):

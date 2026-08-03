@@ -6,7 +6,19 @@ from tqdm import tqdm
 from PIL import Image
 import numpy as np
 
-def train_one_epoch(data_loader_train, device,model, criterion, optimizer, epoch):
+# args.amp_dtype is a string ("bf16" [default], "fp16", or "fp32"/None to disable AMP
+# entirely) so it round-trips cleanly through argparse/experiment configs. fp16 needs
+# gradient scaling to avoid underflow (bf16's wider exponent range doesn't); ConvNeXt V2's
+# depthwise convs hit a cuDNN "no engine found" error under bf16 on at least some GPU/cuDNN
+# combinations (verified locally) but work fine under fp16, hence the per-model override.
+def resolve_amp_dtype(args):
+  name = getattr(args, "amp_dtype", "bf16")
+  if name in (None, "fp32"):
+    return None
+  return {"bf16": torch.bfloat16, "fp16": torch.float16}[name]
+
+
+def train_one_epoch(data_loader_train, device, model, criterion, optimizer, epoch, amp_dtype=torch.bfloat16, scaler=None):
   batch_time = MetricLogger('Time', ':6.3f')
   losses = MetricLogger('Loss', ':.4e')
   progress = ProgressLogger(
@@ -20,14 +32,19 @@ def train_one_epoch(data_loader_train, device,model, criterion, optimizer, epoch
   for i, (samples, targets) in enumerate(data_loader_train):
     samples, targets = samples.float().to(device), targets.float().to(device)
 
-    with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+    with torch.autocast(device_type="cuda", dtype=(amp_dtype or torch.bfloat16), enabled=amp_dtype is not None):
       outputs = model(samples)
       #outputs = torch.sigmoid(outputs)
       loss = criterion(outputs, targets)
 
     optimizer.zero_grad()
-    loss.backward()
-    optimizer.step()
+    if scaler is not None:
+      scaler.scale(loss).backward()
+      scaler.step(optimizer)
+      scaler.update()
+    else:
+      loss.backward()
+      optimizer.step()
 
     losses.update(loss.item(), samples.size(0))
     batch_time.update(time.time() - end)
@@ -39,7 +56,7 @@ def train_one_epoch(data_loader_train, device,model, criterion, optimizer, epoch
   return losses.avg
 
 
-def evaluate(data_loader_val, device, model, criterion):
+def evaluate(data_loader_val, device, model, criterion, amp_dtype=torch.bfloat16):
   model.eval()
 
   with torch.no_grad():
@@ -53,7 +70,7 @@ def evaluate(data_loader_val, device, model, criterion):
     for i, (samples, targets) in enumerate(data_loader_val):
       samples, targets = samples.float().to(device), targets.float().to(device)
 
-      with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+      with torch.autocast(device_type="cuda", dtype=(amp_dtype or torch.bfloat16), enabled=amp_dtype is not None):
         outputs = model(samples)
         #outputs = torch.sigmoid(outputs)
         loss = criterion(outputs, targets)
@@ -104,7 +121,8 @@ def test_classification(checkpoint, data_loader_test, device, args):
 
       varInput = torch.autograd.Variable(samples.view(-1, c, h, w).cuda())
 
-      with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+      _amp_dtype = resolve_amp_dtype(args)
+      with torch.autocast(device_type="cuda", dtype=(_amp_dtype or torch.bfloat16), enabled=_amp_dtype is not None):
         out = model(varInput)
       if args.data_set in ["RSNAPneumonia", "COVIDx"]:
         out = torch.softmax(out,dim = 1)
@@ -134,7 +152,8 @@ def test_model(model, data_loader_test, args):
 
       varInput = torch.autograd.Variable(samples.view(-1, c, h, w).cuda())
 
-      with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+      _amp_dtype = resolve_amp_dtype(args)
+      with torch.autocast(device_type="cuda", dtype=(_amp_dtype or torch.bfloat16), enabled=_amp_dtype is not None):
         out = model(varInput)
       if args.data_set in ["RSNAPneumonia", "COVIDx"]:
         out = torch.softmax(out,dim = 1)

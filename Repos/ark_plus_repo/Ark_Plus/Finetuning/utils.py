@@ -144,6 +144,31 @@ def meanAccuracy(ground_truth, predictions):
     maccuracy_score = np.mean(accuracy_scores)
     return maccuracy_score, accuracy_scores
 
+def meanECE(ground_truth, predictions, n_bins=10):
+    # Per-class Expected Calibration Error: bin predicted probabilities into n_bins, compare
+    # each bin's mean predicted confidence against its actual positive rate, weight by bin
+    # population. Unlike AUC/F1/recall this doesn't need a chosen threshold -- it's a property
+    # of the raw probabilities themselves.
+    ece_scores = []
+    for i in range(ground_truth.shape[1]):
+        if np.any(ground_truth[:, i]):
+            y_true = ground_truth[:, i]
+            y_prob = predictions[:, i]
+            bins = np.linspace(0, 1, n_bins + 1)
+            bin_ids = np.clip(np.digitize(y_prob, bins) - 1, 0, n_bins - 1)
+            ece = 0.0
+            for b in range(n_bins):
+                mask = bin_ids == b
+                if mask.sum() == 0:
+                    continue
+                bin_acc = y_true[mask].mean()
+                bin_conf = y_prob[mask].mean()
+                ece += (mask.sum() / len(y_true)) * abs(bin_acc - bin_conf)
+            ece_scores.append(ece)
+
+    mece_score = np.mean(ece_scores)
+    return mece_score, ece_scores
+
 class CoOccurrenceBCELoss:
     """BCEWithLogitsLoss + an optional class-imbalance pos_weight, plus an optional
     co-occurrence-aware regularization term on the classifier head's weight matrix.

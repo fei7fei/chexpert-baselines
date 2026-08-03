@@ -3,6 +3,7 @@ import os
 import sys
 import shutil
 import time
+import random
 import numpy as np
 from optparse import OptionParser
 from tqdm import tqdm
@@ -16,7 +17,7 @@ from sklearn.metrics import accuracy_score
 import torch
 import torch.backends.cudnn as cudnn
 from torch.utils.data import DataLoader
-from trainer import train_one_epoch, evaluate, test_classification, test_model
+from trainer import train_one_epoch, evaluate, test_classification, test_model, resolve_amp_dtype
 
 from timm.scheduler import create_scheduler
 from timm.optim import create_optimizer
@@ -53,6 +54,15 @@ def classification_engine(args, model_path, output_path, diseases, dataset_train
     print("start training....")
     for i in range(args.start_index, args.num_trial):
       print ("run:",str(i+1))
+      # Explicit per-trial seeding (protocol: 1 seed for screening, 3 for headline results).
+      # args.seed_list gives the actual seed values to report; falls back to the bare trial
+      # index if unset, matching the original (implicit, non-reproducible) behavior.
+      _seed = getattr(args, "seed_list", None)
+      _seed = _seed[i] if _seed is not None else i
+      torch.manual_seed(_seed)
+      np.random.seed(_seed)
+      random.seed(_seed)
+      print("seed:", _seed)
       start_epoch = 0
       init_loss = 1000000
       experiment = args.exp_name + "_run_" + str(i)
@@ -126,12 +136,16 @@ def classification_engine(args, model_path, output_path, diseases, dataset_train
       accuracy = []
       epoch_table = []
       epoch_table_path = os.path.join(model_path, experiment + "_epoch_table.csv")
+      # fp16 needs gradient scaling to avoid underflow; bf16 doesn't (same exponent range as
+      # fp32). One scaler per trial, reused across epochs so its scale factor can adapt.
+      _amp_dtype = resolve_amp_dtype(args)
+      _scaler = torch.cuda.amp.GradScaler() if _amp_dtype == torch.float16 else None
       for epoch in range(start_epoch, args.epochs):
         if args.skip_training:
           break
-        train_loss = train_one_epoch(data_loader_train,device, model, criterion, optimizer, epoch)
+        train_loss = train_one_epoch(data_loader_train,device, model, criterion, optimizer, epoch, amp_dtype=_amp_dtype, scaler=_scaler)
 
-        val_loss = evaluate(data_loader_val, device,model, criterion)
+        val_loss = evaluate(data_loader_val, device,model, criterion, amp_dtype=_amp_dtype)
 
         lr_scheduler.step(val_loss)
 
@@ -158,6 +172,7 @@ def classification_engine(args, model_path, output_path, diseases, dataset_train
           mF1, f1_scores = meanF1(y_test, p_test)
           mRecall, recall_scores = meanRecall(y_test, p_test)
           mAccuracy, accuracy_scores = meanAccuracy(y_test, p_test)
+          mECE, ece_scores = meanECE(y_test, p_test)
 
           print(">> Mean AUC = {:.4f} \nAUC = {}".format(mAUC, np.array2string(np.array(auc_scores), precision=4, separator=',')))
           print(">> Mean MCC = {:.4f} \nMCC = {}".format(mMCC, np.array2string(np.array(mcc_scores), precision=4, separator=',')))
@@ -165,8 +180,9 @@ def classification_engine(args, model_path, output_path, diseases, dataset_train
           print(">> Mean F1 = {:.4f} \nF1 = {}".format(mF1, np.array2string(np.array(f1_scores), precision=4, separator=',')))
           print(">> Mean Recall = {:.4f} \nRecall = {}".format(mRecall, np.array2string(np.array(recall_scores), precision=4, separator=',')))
           print(">> Mean Accuracy = {:.4f} \nAccuracy = {}".format(mAccuracy, np.array2string(np.array(accuracy_scores), precision=4, separator=',')))
+          print(">> Mean ECE = {:.4f} \nECE = {}".format(mECE, np.array2string(np.array(ece_scores), precision=4, separator=',')))
           mean_result_list.append(mAUC)
-          result_list.append([mAUC,mMCC,mAP,mF1,mRecall,mAccuracy])
+          result_list.append([mAUC,mMCC,mAP,mF1,mRecall,mAccuracy,mECE])
 
           # Clean per-epoch table (Epoch, train_loss, val_loss, F1, AUC, recall, accuracy) for
           # easy display as a DataFrame, separate from the verbose text log above. Rewritten in
@@ -179,9 +195,10 @@ def classification_engine(args, model_path, output_path, diseases, dataset_train
             "AUC": round(mAUC, 4),
             "recall": round(mRecall, 4),
             "accuracy": round(mAccuracy, 4),
+            "ece": round(mECE, 4),
           })
           with open(epoch_table_path, "w", newline="") as f:
-            _w = csv.DictWriter(f, fieldnames=["Epoch", "train_loss", "val_loss", "F1", "AUC", "recall", "accuracy"])
+            _w = csv.DictWriter(f, fieldnames=["Epoch", "train_loss", "val_loss", "F1", "AUC", "recall", "accuracy", "ece"])
             _w.writeheader()
             _w.writerows(epoch_table)
         
@@ -220,10 +237,10 @@ def classification_engine(args, model_path, output_path, diseases, dataset_train
         best_rest = max(mean_result_list)
         best_epoch = mean_result_list.index(best_rest)
         print("=====> Max result:  {} at epoch {}".format(best_rest, best_epoch) )
-        print("mAUC, mMCC, mAP, mF1, mRecall, mAccuracy = {}".format(result_list[best_epoch]))
+        print("mAUC, mMCC, mAP, mF1, mRecall, mAccuracy, mECE = {}".format(result_list[best_epoch]))
         with open(output_file, 'a') as writer:
           writer.write("=====> Max result:  {} at epoch {}\n".format(best_rest, best_epoch))
-          writer.write("mAUC, mMCC, mAP, mF1, mRecall, mAccuracy = {}\n".format(result_list[best_epoch]))
+          writer.write("mAUC, mMCC, mAP, mF1, mRecall, mAccuracy, mECE = {}\n".format(result_list[best_epoch]))
  
   print ("start testing.....")
 
@@ -233,8 +250,8 @@ def classification_engine(args, model_path, output_path, diseases, dataset_train
     print("log_file ({}) not exists!".format(log_file))
   else:
     accuracy = []
-    mean_auc, mean_mcc, mean_ap, mean_f1, mean_recall, mean_accuracy = [],[],[],[],[],[]
-    metric_dict = {"auc": [], "mcc": [], "ap": [], "f1": [], "recall": [], "accuracy": []}
+    mean_auc, mean_mcc, mean_ap, mean_f1, mean_recall, mean_accuracy, mean_ece = [],[],[],[],[],[],[]
+    metric_dict = {"auc": [], "mcc": [], "ap": [], "f1": [], "recall": [], "accuracy": [], "ece": []}
     with open(log_file, 'r') as reader, open(output_file, 'a') as writer:
       experiment = reader.readline()
       print(">> Disease = {}".format(diseases))
@@ -271,6 +288,7 @@ def classification_engine(args, model_path, output_path, diseases, dataset_train
         mF1, f1_scores = meanF1(y_test, p_test)
         mRecall, recall_scores = meanRecall(y_test, p_test)
         mAccuracy, accuracy_scores = meanAccuracy(y_test, p_test)
+        mECE, ece_scores = meanECE(y_test, p_test)
 
         print(">> Mean AUC = {:.4f} \nAUC = {}".format(mAUC, np.array2string(np.array(auc_scores), precision=4, separator=',')))
         print(">> Mean MCC = {:.4f} \nMCC = {}".format(mMCC, np.array2string(np.array(mcc_scores), precision=4, separator=',')))
@@ -278,13 +296,15 @@ def classification_engine(args, model_path, output_path, diseases, dataset_train
         print(">> Mean F1 = {:.4f} \nF1 = {}".format(mF1, np.array2string(np.array(f1_scores), precision=4, separator=',')))
         print(">> Mean Recall = {:.4f} \nRecall = {}".format(mRecall, np.array2string(np.array(recall_scores), precision=4, separator=',')))
         print(">> Mean Accuracy = {:.4f} \nAccuracy = {}".format(mAccuracy, np.array2string(np.array(accuracy_scores), precision=4, separator=',')))
-        writer.write("AUC = {}\n MCC = {}\nAP = {}\nF1 = {}\nRecall = {}\nAccuracy = {}\n".format(np.array2string(np.array(auc_scores), precision=4, separator=','),
+        print(">> Mean ECE = {:.4f} \nECE = {}".format(mECE, np.array2string(np.array(ece_scores), precision=4, separator=',')))
+        writer.write("AUC = {}\n MCC = {}\nAP = {}\nF1 = {}\nRecall = {}\nAccuracy = {}\nECE = {}\n".format(np.array2string(np.array(auc_scores), precision=4, separator=','),
                                                                     np.array2string(np.array(mcc_scores), precision=4, separator=','),
                                                                     np.array2string(np.array(ap_scores), precision=4, separator=','),
                                                                     np.array2string(np.array(f1_scores), precision=4, separator=','),
                                                                     np.array2string(np.array(recall_scores), precision=4, separator=','),
-                                                                    np.array2string(np.array(accuracy_scores), precision=4, separator=',')))
-        writer.write("{}: mAUC = {:.4f}, mMCC = {:.4f}, mAP = {:.4f}, mF1 = {:.4f}, mRecall = {:.4f}, mAccuracy = {:.4f}\n".format(experiment, mAUC, mMCC, mAP, mF1, mRecall, mAccuracy))
+                                                                    np.array2string(np.array(accuracy_scores), precision=4, separator=','),
+                                                                    np.array2string(np.array(ece_scores), precision=4, separator=',')))
+        writer.write("{}: mAUC = {:.4f}, mMCC = {:.4f}, mAP = {:.4f}, mF1 = {:.4f}, mRecall = {:.4f}, mAccuracy = {:.4f}, mECE = {:.4f}\n".format(experiment, mAUC, mMCC, mAP, mF1, mRecall, mAccuracy, mECE))
         
         
         
@@ -302,12 +322,14 @@ def classification_engine(args, model_path, output_path, diseases, dataset_train
         mean_f1.append(mF1)
         mean_recall.append(mRecall)
         mean_accuracy.append(mAccuracy)
+        mean_ece.append(mECE)
         metric_dict["auc"].append(auc_scores)
         metric_dict["mcc"].append(mcc_scores)
         metric_dict["ap"].append(ap_scores)
         metric_dict["f1"].append(f1_scores)
         metric_dict["recall"].append(recall_scores)
         metric_dict["accuracy"].append(accuracy_scores)
+        metric_dict["ece"].append(ece_scores)
         experiment = reader.readline()
     
       
@@ -319,31 +341,35 @@ def classification_engine(args, model_path, output_path, diseases, dataset_train
           csvwriter = csv.writer(file)
           csvwriter.writerows(data)
 
-      mean_auc,mean_mcc,mean_ap,mean_f1,mean_recall,mean_accuracy = np.array(mean_auc),np.array(mean_mcc),np.array(mean_ap),np.array(mean_f1),np.array(mean_recall),np.array(mean_accuracy)
-      print(">> All trials: mAUC = {}\n mMCC = {}\n mAP = {}\n mF1 = {}\n mRecall = {}\n mAccuracy = {}\n ".format(np.array2string(mean_auc, precision=4, separator=','),
+      mean_auc,mean_mcc,mean_ap,mean_f1,mean_recall,mean_accuracy,mean_ece = np.array(mean_auc),np.array(mean_mcc),np.array(mean_ap),np.array(mean_f1),np.array(mean_recall),np.array(mean_accuracy),np.array(mean_ece)
+      print(">> All trials: mAUC = {}\n mMCC = {}\n mAP = {}\n mF1 = {}\n mRecall = {}\n mAccuracy = {}\n mECE = {}\n ".format(np.array2string(mean_auc, precision=4, separator=','),
                                                                                    np.array2string(mean_mcc, precision=4, separator=','),
                                                                                    np.array2string(mean_ap, precision=4, separator=','),
                                                                                    np.array2string(mean_f1, precision=4, separator=','),
                                                                                    np.array2string(mean_recall, precision=4, separator=','),
-                                                                                   np.array2string(mean_accuracy, precision=4, separator=',')))
-      writer.write("All trials: mAUC  = {}\n mMCC  = {}\n mAP = {}\n mF1 = {}\n mRecall = {}\n mAccuracy = {}\n ".format(np.array2string(mean_auc, precision=4, separator='\t'),
+                                                                                   np.array2string(mean_accuracy, precision=4, separator=','),
+                                                                                   np.array2string(mean_ece, precision=4, separator=',')))
+      writer.write("All trials: mAUC  = {}\n mMCC  = {}\n mAP = {}\n mF1 = {}\n mRecall = {}\n mAccuracy = {}\n mECE = {}\n ".format(np.array2string(mean_auc, precision=4, separator='\t'),
                                                                             np.array2string(mean_mcc, precision=4, separator='\t'),
                                                                             np.array2string(mean_ap, precision=4, separator='\t'),
                                                                             np.array2string(mean_f1, precision=4, separator='\t'),
                                                                             np.array2string(mean_recall, precision=4, separator='\t'),
-                                                                            np.array2string(mean_accuracy, precision=4, separator='\t')))
-      print(">> Mean / STD over All trials: aAUC = {:.4f}({:.4f}) aMCC = {:.4f}({:.4f}) aAP = {:.4f}({:.4f}) aF1 = {:.4f}({:.4f}) aRecall = {:.4f}({:.4f}) aAccuracy = {:.4f}({:.4f})  \n".format(np.mean(mean_auc), np.std(mean_auc),
+                                                                            np.array2string(mean_accuracy, precision=4, separator='\t'),
+                                                                            np.array2string(mean_ece, precision=4, separator='\t')))
+      print(">> Mean / STD over All trials: aAUC = {:.4f}({:.4f}) aMCC = {:.4f}({:.4f}) aAP = {:.4f}({:.4f}) aF1 = {:.4f}({:.4f}) aRecall = {:.4f}({:.4f}) aAccuracy = {:.4f}({:.4f}) aECE = {:.4f}({:.4f})  \n".format(np.mean(mean_auc), np.std(mean_auc),
                                                                                                                                             np.mean(mean_mcc), np.std(mean_mcc),
                                                                                                                                             np.mean(mean_ap), np.std(mean_ap),
                                                                                                                                             np.mean(mean_f1), np.std(mean_f1),
                                                                                                                                             np.mean(mean_recall), np.std(mean_recall),
-                                                                                                                                            np.mean(mean_accuracy), np.std(mean_accuracy)))
-      writer.write("Mean / STD over All trials: aAUC = {:.4f}({:.4f}) aMCC = {:.4f}({:.4f}) aAP = {:.4f}({:.4f}) aF1 = {:.4f}({:.4f}) aRecall = {:.4f}({:.4f}) aAccuracy = {:.4f}({:.4f})  \n".format(np.mean(mean_auc), np.std(mean_auc),
+                                                                                                                                            np.mean(mean_accuracy), np.std(mean_accuracy),
+                                                                                                                                            np.mean(mean_ece), np.std(mean_ece)))
+      writer.write("Mean / STD over All trials: aAUC = {:.4f}({:.4f}) aMCC = {:.4f}({:.4f}) aAP = {:.4f}({:.4f}) aF1 = {:.4f}({:.4f}) aRecall = {:.4f}({:.4f}) aAccuracy = {:.4f}({:.4f}) aECE = {:.4f}({:.4f})  \n".format(np.mean(mean_auc), np.std(mean_auc),
                                                                                                                                                 np.mean(mean_mcc), np.std(mean_mcc),
                                                                                                                                                 np.mean(mean_ap), np.std(mean_ap),
                                                                                                                                                 np.mean(mean_f1), np.std(mean_f1),
                                                                                                                                                 np.mean(mean_recall), np.std(mean_recall),
-                                                                                                                                                np.mean(mean_accuracy), np.std(mean_accuracy)))
+                                                                                                                                                np.mean(mean_accuracy), np.std(mean_accuracy),
+                                                                                                                                                np.mean(mean_ece), np.std(mean_ece)))
       class_wise_scores = []
       class_wise_scores.extend(get_classwise_mean_std(metric_dict["auc"]))
       class_wise_scores.extend(get_classwise_mean_std(metric_dict["mcc"]))
@@ -351,7 +377,8 @@ def classification_engine(args, model_path, output_path, diseases, dataset_train
       class_wise_scores.extend(get_classwise_mean_std(metric_dict["f1"]))
       class_wise_scores.extend(get_classwise_mean_std(metric_dict["recall"]))
       class_wise_scores.extend(get_classwise_mean_std(metric_dict["accuracy"]))
-      writer.write("AUC/MCC/AP/F1/Recall/Accuracy(mean/std): \n{}\n".format(class_wise_scores))
+      class_wise_scores.extend(get_classwise_mean_std(metric_dict["ece"]))
+      writer.write("AUC/MCC/AP/F1/Recall/Accuracy/ECE(mean/std): \n{}\n".format(class_wise_scores))
 
       if args.data_set in ["RSNAPneumonia", "COVIDx"]:
         accuracy = np.array(accuracy)
