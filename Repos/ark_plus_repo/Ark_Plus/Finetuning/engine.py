@@ -39,14 +39,19 @@ def classification_engine(args, model_path, output_path, diseases, dataset_train
     os.makedirs(output_path)
   output_file = os.path.join(output_path, args.exp_name + "_results.txt")
 
+  # persistent_workers avoids respawning the worker pool every epoch (real overhead across a
+  # 50-epoch run); only valid when num_workers>0. A rock-steady per-batch time with zero
+  # jitter over hundreds of batches is the signature of a CPU-bound (not GPU-bound) step --
+  # exactly what too few dataloader workers looks like, not a slow GPU.
+  _persistent = args.workers > 0
   data_loader_test = DataLoader(dataset=dataset_test, batch_size=int(args.batch_size/2), shuffle=False,
-                            num_workers=args.workers, pin_memory=True)  
+                            num_workers=args.workers, pin_memory=True, persistent_workers=_persistent)
   # training phase
   if args.mode == "train":
     data_loader_train = DataLoader(dataset=dataset_train, batch_size=args.batch_size, shuffle=True,
-                                   num_workers=args.workers, pin_memory=True)
+                                   num_workers=args.workers, pin_memory=True, persistent_workers=_persistent)
     data_loader_val = DataLoader(dataset=dataset_val, batch_size=args.batch_size, shuffle=False,
-                                 num_workers=args.workers, pin_memory=True)
+                                 num_workers=args.workers, pin_memory=True, persistent_workers=_persistent)
                            
     log_file = os.path.join(model_path, "models.log")
 
