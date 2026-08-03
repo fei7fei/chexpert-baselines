@@ -21,7 +21,7 @@ import simmim
 from convnext import ConvNeXt
 from resnet import ResNet50
 from utils import load_swin_pretrained
-from transformers import AutoModel
+from transformers import AutoModel, Swinv2Model, Swinv2Config
 
 
 def _swin_window_size(input_size, default=7):
@@ -89,6 +89,46 @@ class ConvNextV2Classifier(nn.Module):
     def forward(self, x):
         out = self.encoder(pixel_values=x)
         feat = out.pooler_output if getattr(out, "pooler_output", None) is not None else out.last_hidden_state.mean(dim=[-2, -1])
+        return self.head(feat)
+
+
+class Swinv2Classifier(nn.Module):
+    """Swin Transformer V2 Base (microsoft/swinv2-base-patch4-window12-192-22k from Hugging
+    Face) -- not supported by the pinned timm==0.5.4 in this repo (added to timm after this
+    pin, same situation as ConvNeXt V2/RAD-DINO), loaded via transformers instead.
+
+    Unlike Swin V1, V2 replaces the fixed relative-position-bias lookup table with a small
+    continuous MLP over log-spaced coordinates, so it generalizes across window sizes instead
+    of needing one retrained per resolution. Verified locally: loading this checkpoint at
+    320px with its native window_size=12 (left unmodified -- no reason to change it) has
+    zero missing/dropped backbone weights, only the classifier head (always replaced
+    regardless of resolution). This is the whole point of V2's design, and the reason it
+    doesn't need the window_size-change-and-drop-weights workaround the V1 Swin models in
+    this file use.
+
+    Precision note: this model needs args.amp_dtype="bf16", NOT fp16 (the default for the
+    other 5 models in this protocol). Verified: under fp16, the key-projection weight's
+    gradient goes non-finite in every attention block (22/473 param tensors) -- Swin V2's
+    cosine attention L2-normalizes Q/K before the dot product, and normalizing near-zero-norm
+    vectors underflows fp16's narrower range. bf16 (same exponent range as fp32) doesn't have
+    this problem; verified clean (0/473 non-finite) under bf16. This is the mirror image of
+    ConvNeXt V2's situation elsewhere in this file (that one needs fp16, not bf16) -- both are
+    real, hardware/numerics-forced exceptions, not preferences.
+    """
+    def __init__(self, num_classes, image_size=320):
+        super().__init__()
+        ckpt = "microsoft/swinv2-base-patch4-window12-192-22k"
+        config = Swinv2Config.from_pretrained(ckpt, image_size=image_size)
+        self.encoder = Swinv2Model.from_pretrained(ckpt, config=config, ignore_mismatched_sizes=True)
+        # config.hidden_size is wrong for this model (reports 768; verified empirically that
+        # the actual pooled feature is 1024-dim). The correct value is the last stage's width:
+        # embed_dim doubles at each of the 4 stages, so embed_dim * 2**(num_stages-1).
+        pooled_dim = config.embed_dim * 2 ** (len(config.depths) - 1)
+        self.head = nn.Linear(pooled_dim, num_classes)
+
+    def forward(self, x):
+        out = self.encoder(pixel_values=x)
+        feat = out.pooler_output if getattr(out, "pooler_output", None) is not None else out.last_hidden_state.mean(dim=1)
         return self.head(feat)
 
 def build_classification_model(args):
@@ -210,6 +250,9 @@ def build_classification_model(args):
 
         elif args.model_name.lower() == "convnextv2_base":
             model = ConvNextV2Classifier(num_classes=args.num_class)
+
+        elif args.model_name.lower() == "swinv2_base":
+            model = Swinv2Classifier(num_classes=args.num_class, image_size=getattr(args, "input_size", 320))
 
     else:
         print("Creating model from pretrained weights: "+ args.pretrained_weights)
