@@ -30,7 +30,10 @@ def train_one_epoch(data_loader_train, device, model, criterion, optimizer, epoc
 
   end = time.time()
   for i, (samples, targets) in enumerate(data_loader_train):
-    samples, targets = samples.float().to(device), targets.float().to(device)
+    # non_blocking=True overlaps the host->device copy with other GPU work instead of
+    # blocking on it -- only actually async when the source tensor is pinned, which the
+    # DataLoaders' pin_memory=True already guarantees.
+    samples, targets = samples.float().to(device, non_blocking=True), targets.float().to(device, non_blocking=True)
 
     with torch.autocast(device_type="cuda", dtype=(amp_dtype or torch.bfloat16), enabled=amp_dtype is not None):
       outputs = model(samples)
@@ -68,7 +71,10 @@ def evaluate(data_loader_val, device, model, criterion, amp_dtype=torch.bfloat16
 
     end = time.time()
     for i, (samples, targets) in enumerate(data_loader_val):
-      samples, targets = samples.float().to(device), targets.float().to(device)
+      # non_blocking=True overlaps the host->device copy with other GPU work instead of
+      # blocking on it -- only actually async when the source tensor is pinned, which the
+      # DataLoaders' pin_memory=True already guarantees.
+      samples, targets = samples.float().to(device, non_blocking=True), targets.float().to(device, non_blocking=True)
 
       with torch.autocast(device_type="cuda", dtype=(amp_dtype or torch.bfloat16), enabled=amp_dtype is not None):
         outputs = model(samples)

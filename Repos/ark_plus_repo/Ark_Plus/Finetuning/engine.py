@@ -44,14 +44,15 @@ def classification_engine(args, model_path, output_path, diseases, dataset_train
   # jitter over hundreds of batches is the signature of a CPU-bound (not GPU-bound) step --
   # exactly what too few dataloader workers looks like, not a slow GPU.
   _persistent = args.workers > 0
+  _prefetch = 4 if args.workers > 0 else None  # more lookahead buffer per worker; None is required when workers=0
   data_loader_test = DataLoader(dataset=dataset_test, batch_size=int(args.batch_size/2), shuffle=False,
-                            num_workers=args.workers, pin_memory=True, persistent_workers=_persistent)
+                            num_workers=args.workers, pin_memory=True, persistent_workers=_persistent, prefetch_factor=_prefetch)
   # training phase
   if args.mode == "train":
     data_loader_train = DataLoader(dataset=dataset_train, batch_size=args.batch_size, shuffle=True,
-                                   num_workers=args.workers, pin_memory=True, persistent_workers=_persistent)
+                                   num_workers=args.workers, pin_memory=True, persistent_workers=_persistent, prefetch_factor=_prefetch)
     data_loader_val = DataLoader(dataset=dataset_val, batch_size=args.batch_size, shuffle=False,
-                                 num_workers=args.workers, pin_memory=True, persistent_workers=_persistent)
+                                 num_workers=args.workers, pin_memory=True, persistent_workers=_persistent, prefetch_factor=_prefetch)
                            
     log_file = os.path.join(model_path, "models.log")
 
