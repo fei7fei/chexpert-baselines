@@ -67,6 +67,8 @@ def classification_engine(args, model_path, output_path, diseases, dataset_train
       init_loss = 1000000
       experiment = args.exp_name + "_run_" + str(i)
       best_val_loss = init_loss
+      best_val_auc = -1.0  # checkpoint selection criterion when args.test_every_epoch is True (see below) --
+                            # higher is better, so -1.0 (below any real AUC) is the correct "nothing saved yet" sentinel
       patience_counter = 0
       save_model_path = os.path.join(model_path, experiment)
       model = build_classification_model(args)
@@ -127,8 +129,9 @@ def classification_engine(args, model_path, output_path, diseases, dataset_train
           lr_scheduler.load_state_dict(checkpoint['scheduler'])
           optimizer.load_state_dict(checkpoint['optimizer'])
           best_val_loss = init_loss
-          print("=> loaded checkpoint '{}' (epoch={:04d}, val_loss={:.5f})"
-                .format(resume, start_epoch, init_loss))
+          best_val_auc = checkpoint.get('aucMAX', -1.0)  # .get() for backward-compat with checkpoints saved before AUC-based selection
+          print("=> loaded checkpoint '{}' (epoch={:04d}, val_loss={:.5f}, val_auc={:.5f})"
+                .format(resume, start_epoch, init_loss, best_val_auc))
         else:
           print("=> no checkpoint found at '{}'".format(args.resume))
 
@@ -150,12 +153,19 @@ def classification_engine(args, model_path, output_path, diseases, dataset_train
         lr_scheduler.step(val_loss)
 
         if args.test_every_epoch:
-          y_test, p_test = test_model(model, data_loader_test, args)
-          y_test = y_test.cpu().numpy()
-          p_test = p_test.cpu().numpy()
+          # Per-epoch metrics (and checkpoint selection, below) are computed on the VALIDATION
+          # set only. The held-out test set is touched exactly once, after all training is done,
+          # on the single best-saved checkpoint (see the "start testing" block later in this
+          # function). Evaluating on test every epoch and using those numbers to pick "best
+          # epoch" -- which is what this block used to do -- leaks the held-out set into model
+          # selection; the whole point of holding it out is that it never influences which
+          # checkpoint you keep.
+          y_val, p_val = test_model(model, data_loader_val, args)
+          y_val = y_val.cpu().numpy()
+          p_val = p_val.cpu().numpy()
 
           if args.data_set in ["RSNAPneumonia", "COVIDx"]:
-            acc = accuracy_score(np.argmax(y_test,axis=1),np.argmax(p_test,axis=1))
+            acc = accuracy_score(np.argmax(y_val,axis=1),np.argmax(p_val,axis=1))
             print(">>{}: ACCURACY = {}".format(experiment,acc))
             with open(output_file, 'a') as writer:
               writer.write(
@@ -163,16 +173,16 @@ def classification_engine(args, model_path, output_path, diseases, dataset_train
             accuracy.append(acc)
 
           if test_diseases is not None:
-            y_test = copy.deepcopy(y_test[:,test_diseases])
-            p_test = copy.deepcopy(p_test[:,test_diseases])
+            y_val = copy.deepcopy(y_val[:,test_diseases])
+            p_val = copy.deepcopy(p_val[:,test_diseases])
 
-          mAUC, auc_scores = meanAUC(y_test, p_test)
-          mMCC, mcc_scores = meanMCC(y_test, p_test)
-          mAP, ap_scores = meanAP(y_test, p_test)
-          mF1, f1_scores = meanF1(y_test, p_test)
-          mRecall, recall_scores = meanRecall(y_test, p_test)
-          mAccuracy, accuracy_scores = meanAccuracy(y_test, p_test)
-          mECE, ece_scores = meanECE(y_test, p_test)
+          mAUC, auc_scores = meanAUC(y_val, p_val)
+          mMCC, mcc_scores = meanMCC(y_val, p_val)
+          mAP, ap_scores = meanAP(y_val, p_val)
+          mF1, f1_scores = meanF1(y_val, p_val)
+          mRecall, recall_scores = meanRecall(y_val, p_val)
+          mAccuracy, accuracy_scores = meanAccuracy(y_val, p_val)
+          mECE, ece_scores = meanECE(y_val, p_val)
 
           print(">> Mean AUC = {:.4f} \nAUC = {}".format(mAUC, np.array2string(np.array(auc_scores), precision=4, separator=',')))
           print(">> Mean MCC = {:.4f} \nMCC = {}".format(mMCC, np.array2string(np.array(mcc_scores), precision=4, separator=',')))
@@ -202,22 +212,42 @@ def classification_engine(args, model_path, output_path, diseases, dataset_train
             _w.writeheader()
             _w.writerows(epoch_table)
         
-        if val_loss < best_val_loss:
-          print(
-            "Epoch {:04d}: val_loss improved from {:.5f} to {:.5f}, saving model to {}".format(epoch, best_val_loss, val_loss,
-                                                                                              save_model_path))
+        # Checkpoint selection: by validation macro-AUC when per-epoch val metrics are being
+        # computed (the normal case -- args.test_every_epoch=True), falling back to val_loss
+        # otherwise. AUC-based selection is what the protocol calls for: training runs the full
+        # budgeted epoch count regardless, but the checkpoint that gets reported is whichever
+        # epoch scored best on validation AUC, not whichever epoch happened to finish last.
+        _select_by_auc = args.test_every_epoch
+        _improved = (mAUC > best_val_auc) if _select_by_auc else (val_loss < best_val_loss)
+
+        if _improved:
+          if _select_by_auc:
+            print("Epoch {:04d}: val AUC improved from {:.5f} to {:.5f} (val_loss={:.5f}), saving model to {}".format(
+              epoch, best_val_auc, mAUC, val_loss, save_model_path))
+            # plain float, not numpy.float64 -- meanAUC() returns np.mean(...), and a numpy
+            # scalar stored in the checkpoint dict breaks torch.load's weights_only=True
+            # default (PyTorch >=2.6) when reloading for the final test-set evaluation.
+            best_val_auc = float(mAUC)
+          else:
+            print(
+              "Epoch {:04d}: val_loss improved from {:.5f} to {:.5f}, saving model to {}".format(epoch, best_val_loss, val_loss,
+                                                                                                save_model_path))
           best_val_loss = val_loss
-          patience_counter = 0  
+          patience_counter = 0
           save_checkpoint({
             'epoch': epoch + 1,
             'lossMIN': best_val_loss,
+            'aucMAX': best_val_auc,
             'state_dict': model.state_dict(),
             'optimizer': optimizer.state_dict(),
             'scheduler': lr_scheduler.state_dict(),
           },  filename="{}".format(save_model_path, epoch))
 
         else:
-          print("Epoch {:04d}: val_loss did not improve from {:.5f} ".format(epoch, best_val_loss))
+          if _select_by_auc:
+            print("Epoch {:04d}: val AUC did not improve from {:.5f} (val_loss={:.5f})".format(epoch, best_val_auc, val_loss))
+          else:
+            print("Epoch {:04d}: val_loss did not improve from {:.5f} ".format(epoch, best_val_loss))
           patience_counter += 1
 
         if patience_counter >= args.patience:
