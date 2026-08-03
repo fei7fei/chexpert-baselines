@@ -275,7 +275,7 @@ def build_classification_model(args):
             
         elif args.model_name.lower() == "swin_large":
             model = SwinTransformer(num_classes=args.num_class, img_size = args.input_size,
-                patch_size=4, window_size=7, embed_dim=192, depths=(2, 2, 18, 2), num_heads=(6, 12, 24, 48))
+                patch_size=4, window_size=_swin_window_size(args.input_size), embed_dim=192, depths=(2, 2, 18, 2), num_heads=(6, 12, 24, 48))
             load_pretrained_weights(model, args.init.lower(), args.pretrained_weights, args.key, args.scale_up)
             
         elif args.model_name.lower() == "swin_large_384":
@@ -359,6 +359,18 @@ def load_pretrained_weights(model, init, pretrained_weights, checkpoint_key = No
         print(f"Removing key {k_del} from pretrained checkpoint")
         for k in k_del:
             del state_dict[k]
+
+        # relative_position_bias_table/index are window-size-dependent (shape (2W-1)^2 x heads /
+        # WxW) and don't transfer across a window-size change, same as attn_mask above. Unlike
+        # missing/unexpected keys, strict=False does NOT tolerate a same-key-different-shape
+        # error, so these have to be filtered out explicitly -- same approach already verified
+        # in _load_swin_pretrained_filtered() elsewhere in this file (~0.4% of params affected).
+        model_sd = model.state_dict()
+        shape_mismatch = [k for k in state_dict if k in model_sd and state_dict[k].shape != model_sd[k].shape]
+        if shape_mismatch:
+            print(f"Removing {len(shape_mismatch)} shape-mismatched window-geometry keys (window size changed): {shape_mismatch}")
+            for k in shape_mismatch:
+                del state_dict[k]
 
     for k in ['head.weight', 'head.bias', 'head_dist.weight', 'head_dist.bias']:
         if k in state_dict:

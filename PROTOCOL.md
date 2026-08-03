@@ -28,7 +28,7 @@ Code: https://github.com/fei7fei/chexpert-baselines
 | Optimizer | AdamW, cosine schedule |
 | Warmup epochs | **1** — ⚠️ open item, see below |
 | LR / weight decay | 5e-5 / 0.05 |
-| Checkpoint selection | **Best validation macro-AUC** across the 50-epoch budget (not val loss, not the epoch-50 endpoint) |
+| Checkpoint selection | **Best validation macro-AUC** across the 30-epoch budget (not val loss, not the epoch-30 endpoint) |
 | Val vs. test | Official 234-study CheXpert valid.csv = validation (threshold tuning / checkpoint selection only). A **held-out test set carved from train by patient ID** (15% of patients) = final reporting, touched exactly once, after training, on the single selected checkpoint |
 | Ablation subset | Fixed, stratified ~20% of train, patient-disjoint from the held-out test set |
 | Seeds | 1 (screening tier) / 2 — seeds 13, 42 (headline tier) — reduced from 3 seeds on 2026-08-03 for the Aug 5 deadline. ⚠️ This overrides the earlier explicit guidance to keep 3 seeds even under time pressure (reviewers expect the 3-seed spread) — a deliberate, acknowledged trade-off, not an oversight |
@@ -59,7 +59,7 @@ blended into one unlabeled number.
 ## Data pipeline (added this pass, for speed)
 
 - `args.workers = 8` (was 2), `persistent_workers=True` (worker pool isn't
-  respawned every one of the 50 epochs), `prefetch_factor=4`.
+  respawned every one of the 30 epochs), `prefetch_factor=4`.
 - `non_blocking=True` on host→device transfers (paired with the DataLoaders'
   existing `pin_memory=True`).
 - Not yet verified for actual speedup on the target hardware — only confirmed

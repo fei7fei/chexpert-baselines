@@ -93,6 +93,35 @@ not just re-running cells.
    actual speedup on the target hardware** — only confirmed correct
    (no crashes) on different local hardware. The real test is the next
    restart's per-batch timing.
+7. **STOP-THE-LINE, found 2026-08-03: Ark+ was never actually loading Ark+
+   weights.** `ArkPlus_Colab_Baseline.ipynb`'s cell 12 had `USE_ARK_WEIGHTS =
+   False` hardcoded, and cell 14 (rewritten by the frozen-protocol pass)
+   never referenced `CKPT_PATH`/`USE_ARK_WEIGHTS` at all — it unconditionally
+   set `args.pretrained_weights = None`. So Ark+ and SwinL were training as
+   the exact same random-init model. Three real bugs, now fixed:
+   - Cell 12: `USE_ARK_WEIGHTS` flipped to `True`.
+   - Cell 14: now sets `args.init = "ark" if USE_ARK_WEIGHTS else "random"`,
+     `args.pretrained_weights = CKPT_PATH`, `args.scale_up = True`.
+   - `models.py`'s `swin_large` pretrained-load branch hardcoded
+     `window_size=7`, ignoring the `_swin_window_size()` helper the
+     random-init branch already used correctly — 320px needs `window_size=5`,
+     not 7. Fixed to call the same helper. Separately, `load_pretrained_weights()`
+     only filtered `attn_mask` keys for the window-size change, not the also
+     window-size-dependent `relative_position_bias_table`/`relative_position_index`
+     — `strict=False` doesn't save a same-key-different-shape error, only
+     missing/unexpected keys. Added a shape-mismatch filter (same pattern
+     already used in `_load_swin_pretrained_filtered` elsewhere in the file).
+   - The real checkpoint (`Ark6_swinLarge768_ep50.pth.tar`, requires the
+     Google Form request in the Ark repo README — not downloadable any other
+     way) is now on Drive at `ark_plus_chexpert_checkpoints/`. **Verified
+     locally**: loads with only expected missing keys (window-geometry
+     buffers + `head.weight`/`head.bias`) and expected unexpected keys
+     (Ark's pretraining-only `projector`/`omni_heads.*`, correctly dropped)
+     — the actual backbone (patch embed, attention, MLP, norms) transfers
+     cleanly. This was the single highest-priority item in the reconciled
+     plan (v3 §1.1) — without it there was no real Ark+ in the comparison,
+     and the Ark+-vs-SwinL pretraining control (the paper's strongest claim
+     per v3 §5.1) didn't exist.
 
 ## Minimal publishable plan — status
 
