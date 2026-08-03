@@ -1,0 +1,134 @@
+# Session Notes — Context for Continuing This Work
+
+This file exists because Claude Code conversations don't sync across machines —
+only the repo does. If you're picking this up on a different machine (or a fresh
+Claude Code session anywhere), read this first; it has the context a plain
+`git log` won't give you. The technical protocol itself is in `PROTOCOL.md`,
+kept separate so it doesn't get buried in narrative.
+
+## The deadline this is actually for
+
+**SPIE Medical Imaging 2027, Computer-Aided Diagnosis track.** Verified via live
+web search (not assumed):
+- Abstract + required 2-4 page PDF: **5 August 2026**
+- Acceptance notification: ~October 2026
+- Award application + preliminary manuscript: 27 November 2026
+- Final manuscript for proceedings: **27 January 2027**
+- Conference: 14-18 Feb 2027, Vancouver BC
+
+The 5 August date is the binding near-term constraint. Everything after
+acceptance has a ~5.5 month runway — most of the deferred work (Log-CPB, GRN,
+LoRA, RAD-DINO distillation) is legitimately for that window, not now.
+
+## What this project actually is
+
+Baseline comparison of 6 chest-X-ray classification architectures on CheXpert
+(Ark+/Swin-L, SwinL-no-pretrain, Swin V2 Base, DenseNet-121, RAD-DINO, ConvNeXt
+V2) under one frozen, identical protocol, plus a small number of "gap"
+experiments (calibration/thresholds, asymmetric loss) that turn it from a pure
+benchmark table into a publishable CAD paper. Framing: **questions, not
+claims** — e.g. "does Ark+ still need a long-tail-aware loss?" not "we propose
+X." This framing was explicitly requested and matters for review — see
+`PROTOCOL.md`'s deviations table for what "frozen" actually means in practice.
+
+## Compute environment
+
+- GPU: **NVIDIA RTX PRO 6000 Blackwell Server Edition, 96GB GDDR7** — accessed
+  through a standard Colab GPU tier that Google's own UI calls "G4" (this is
+  *not* the same as AWS's G4 instance family, which is T4-based — a source of
+  real confusion earlier in this session, resolved by directly checking specs).
+  96GB means batch-size/OOM is basically not a constraint for any of these 6
+  models.
+- Platform: standard Colab (not Enterprise, not a custom/local runtime) — so
+  everything Colab-specific in the notebooks (`google.colab.drive`, the
+  interactive Kaggle-credential prompt, `/content/...` paths) works normally.
+
+## Code flow — important operational detail
+
+Code changes go: **local edit → git commit/push to
+`github.com/fei7fei/chexpert-baselines` → manually resync to
+`G:\My Drive\Project\models\Repos\ark_plus_repo\Ark_Plus\Finetuning`**. The
+Colab notebooks pull their code from **Drive**, not git, directly (see cell 4 of
+any `*_Colab_Baseline.ipynb`). Git push alone is *not* enough to make a change
+live in Colab — this was missed at least once this session, causing a stale
+Drive copy to run for a while. Always resync after pushing a Finetuning/ change:
+
+```powershell
+robocopy "A:\Project\models\Repos\ark_plus_repo\Ark_Plus\Finetuning" "G:\My Drive\Project\models\Repos\ark_plus_repo\Ark_Plus\Finetuning" /E /Z /MT:8 /R:2 /W:5 /XD __pycache__
+```
+
+Also: an already-running Colab session won't pick up a Drive update either,
+because cell 4 only copies code `if /content/chexpert_code doesn't already
+exist`. Picking up a code change requires a full **Runtime → Restart session**,
+not just re-running cells.
+
+## Real bugs found and fixed this session (worth knowing so they aren't rediscovered)
+
+1. **Held-out-test-set leak**: the training loop was evaluating per-epoch
+   metrics on the *test* set and using those numbers to report "best epoch" —
+   defeats the point of holding it out. Fixed: per-epoch metrics (and now
+   checkpoint selection) run on validation only; test is touched once, after
+   training, on the one selected checkpoint.
+2. **Checkpoint pickling crash**: `best_val_auc` was a numpy scalar
+   (`meanAUC()` returns `np.mean(...)`), which breaks `torch.load`'s
+   `weights_only=True` default in PyTorch ≥2.6. Fixed by casting to a plain
+   `float()` before storing in the checkpoint dict.
+3. **ConvNeXt V2 crashes under bf16** ("no cuDNN engine found" for its
+   depthwise convs) — verified, fp16 avoids it. This model is the one fp16
+   exception... but:
+4. **Swin V2 crashes under fp16** — its cosine attention L2-normalizes Q/K
+   before the dot product; normalizing near-zero-norm vectors underflows
+   fp16's narrow range (verified: 22/473 grad tensors go non-finite). bf16 is
+   clean. So Swin V2 is the mirror-image bf16 exception to ConvNeXtV2's fp16
+   exception — both real, hardware-forced, not preferences.
+5. **`transformers`' `Swinv2Config.hidden_size` is simply wrong** for this
+   checkpoint (reports 768; actual pooled feature is 1024-dim). Fixed by
+   computing `embed_dim * 2**(num_stages-1)` instead of trusting the config
+   attribute.
+6. Per-batch training time was suspiciously perfectly flat (0.136s, zero
+   jitter over 950 batches) before this session's speedup changes — a strong
+   signal of a CPU-bound (dataloader-starved) step, not a GPU-bound one.
+   `args.workers` was only 2. Bumped to 8 + `persistent_workers` +
+   `prefetch_factor=4` + `non_blocking=True` transfers. **Not yet verified for
+   actual speedup on the target hardware** — only confirmed correct
+   (no crashes) on different local hardware. The real test is the next
+   restart's per-batch timing.
+
+## Minimal publishable plan — status
+
+Per the original plan doc: 5(-6) baselines + Gap #1 (calibration/thresholds) +
+Gap #3 (asymmetric/focal loss) + the free 50-epoch overfitting-dynamics
+analysis (now trivial: `idxmax()` on the epoch table, since checkpoint
+selection is AUC-based). Nothing built this session weakens this plan —
+if anything the val/test leak fix and the extra SwinL control strengthen it.
+**Gap #1 and Gap #3 are not yet built** — still fully outstanding.
+
+## Explicit guidance received and followed
+
+- Reviewers expect the 3-seed headline spread specifically; do not reduce
+  headline seeds under time pressure, even though epochs can be shortened
+  safely (AUC-based checkpoint selection makes a shorter run still valid,
+  just with less chance of finding an even-better epoch).
+- Frame everything as a question being tested, not a claim of a new method —
+  applies to Log-CPB, ASL, GRN discussion equally.
+- `CheX-DS` (arXiv:2505.11168) already covers DenseNet+Swin-B+ASL on this
+  task — must be read and cited in Related Work, or a reviewer who knows it
+  will reject for the omission.
+
+## Open decisions (unresolved as of this file's writing)
+
+1. Warmup epochs: currently 1, plan doc wants 2 ("since 50 epochs") — not yet
+   changed, needs a call.
+2. Whether to build Gap #1 (calibration/thresholds) now, in parallel with
+   baseline training runs.
+3. Real-world confirmation of the dataloader speedup changes (see bug #6
+   above) — needs a fresh Colab restart and a shared progress-log snippet.
+
+## How to pick this up cold
+
+1. `git pull` — gets `PROTOCOL.md`, this file, and every notebook/code change.
+2. Check whether any Colab training runs are already in progress (Drive
+   folders `<model>_chexpert_checkpoints/` under experiment names
+   `_protocol1_<model>_screening` / `_headline`) before starting anything new,
+   to avoid an accidental duplicate/colliding run.
+3. `PROTOCOL.md`'s "Open items" section is the actual TODO list.
