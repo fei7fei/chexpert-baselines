@@ -109,6 +109,14 @@ if anything the val/test leak fix and the extra SwinL control strengthen it.
   headline seeds under time pressure, even though epochs can be shortened
   safely (AUC-based checkpoint selection makes a shorter run still valid,
   just with less chance of finding an even-better epoch).
+  **Superseded 2026-08-03**: with the Aug 5 abstract deadline 2 days out,
+  explicitly decided to override this and cut to 2 headline seeds (13, 42;
+  dropped 2024) *and* 30 epochs (down from 50), across all 6
+  `Colab_Training_Notebooks/*.ipynb`. This was a deliberate, acknowledged
+  trade-off after being reminded of the original guidance — not an oversight.
+  If there's runway after the abstract deadline, consider adding the 3rd
+  seed back for the final manuscript (27 Jan 2027) to restore the spread
+  reviewers expect.
 - Frame everything as a question being tested, not a claim of a new method —
   applies to Log-CPB, ASL, GRN discussion equally.
 - `CheX-DS` (arXiv:2505.11168) already covers DenseNet+Swin-B+ASL on this

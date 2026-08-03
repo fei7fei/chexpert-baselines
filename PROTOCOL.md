@@ -24,14 +24,14 @@ Code: https://github.com/fei7fei/chexpert-baselines
 |---|---|
 | Input resolution | 320×320 (native CheXpert-small short side) |
 | Uncertain (-1) labels | U-Zeros (headline); U-Ones is a one-line toggle for the appendix sensitivity check |
-| Epochs | 50, no early stopping (`patience = epochs`) |
+| Epochs | 30, no early stopping (`patience = epochs`) — reduced from 50 on 2026-08-03 for the Aug 5 SPIE abstract deadline; checkpoint selection is AUC-based so this is still a valid run, just less epoch budget to find the best one |
 | Optimizer | AdamW, cosine schedule |
 | Warmup epochs | **1** — ⚠️ open item, see below |
 | LR / weight decay | 5e-5 / 0.05 |
 | Checkpoint selection | **Best validation macro-AUC** across the 50-epoch budget (not val loss, not the epoch-50 endpoint) |
 | Val vs. test | Official 234-study CheXpert valid.csv = validation (threshold tuning / checkpoint selection only). A **held-out test set carved from train by patient ID** (15% of patients) = final reporting, touched exactly once, after training, on the single selected checkpoint |
 | Ablation subset | Fixed, stratified ~20% of train, patient-disjoint from the held-out test set |
-| Seeds | 1 (screening tier) / 3 — seeds 13, 42, 2024 (headline tier) |
+| Seeds | 1 (screening tier) / 2 — seeds 13, 42 (headline tier) — reduced from 3 seeds on 2026-08-03 for the Aug 5 deadline. ⚠️ This overrides the earlier explicit guidance to keep 3 seeds even under time pressure (reviewers expect the 3-seed spread) — a deliberate, acknowledged trade-off, not an oversight |
 | Metrics | Macro-AUC, macro-F1, per-class sensitivity (recall) at Youden's-J-optimal threshold, macro-accuracy, MCC, AP, ECE, epoch-to-best-AUC |
 | Resume | `args.resume = True` — safe to re-run the same cell after a Colab disconnect, resumes from the last saved epoch |
 
@@ -73,6 +73,8 @@ blended into one unlabeled number.
 | Precision | Uniform bf16 (A100 assumption) | fp16 default + 2 verified, documented, hardware-forced per-model exceptions (see table above) |
 | Model count | 5 | 6 (SwinL added as Ark+'s no-pretraining control) |
 | Model architecture | "ConvNeXt-B" (ambiguous), "Swin-V2-B" | ConvNeXt **V2** Base (matches on param count, ~89M); Swin V2 Base implemented for real |
+| Epochs | 50 | **30** — cut 2026-08-03 for the Aug 5 abstract deadline |
+| Headline seeds | 3 (13, 42, 2024) | **2** (13, 42) — cut 2026-08-03 for the Aug 5 abstract deadline, overriding earlier explicit guidance to never reduce seeds |
 
 ## Open items
 
