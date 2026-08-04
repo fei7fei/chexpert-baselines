@@ -122,6 +122,48 @@ not just re-running cells.
      plan (v3 §1.1) — without it there was no real Ark+ in the comparison,
      and the Ark+-vs-SwinL pretraining control (the paper's strongest claim
      per v3 §5.1) didn't exist.
+   - **Follow-up trap, also caught same day**: a stale checkpoint
+     (`_protocol1_arkplus_screening_run_0.pth.tar`, 1 epoch, trained *before*
+     this fix under the random-init bug) was still sitting on Drive. With
+     `args.resume=True`, simply running the notebook would have silently
+     resumed from that contaminated state instead of starting fresh from the
+     real Ark+ weights — quietly undoing the whole fix. Deleted it (and its
+     `_run_0_epoch_table.csv`) before any real run started. **If Ark+
+     training is ever restarted from scratch, check for and clear any
+     pre-fix checkpoint under this exp_name first** — `args.resume=True`
+     will not warn you if it picks up a bad one.
+8. **`engine.py`'s test-time F1/Recall/Accuracy leak the held-out test set
+   into threshold selection** (found while building Gap #1): the Youden's-J
+   threshold used to binarize predictions is picked from the *test* set's
+   own labels (`meanF1(y_test, p_test)` etc.), then that same set is scored
+   with it — same category of leak as bug #1 above, just for thresholds
+   instead of checkpoint selection. AUC is unaffected (threshold-independent);
+   F1/Recall/Accuracy as currently reported by the base training notebooks
+   are optimistically biased and **should not be used as headline numbers**.
+   Not yet fixed at the source (`engine.py`) — instead, `ArkPlus_Gaps_Colab.ipynb`
+   (Gap #1) computes the leak-free version post-hoc: thresholds fit on
+   validation only, applied once to test. If time allows, the same fix
+   (separate val-fit threshold from test-time scoring) should go into
+   `engine.py` itself so all 6 models' base pipeline numbers stop leaking,
+   not just Ark+'s Gap #1 analysis.
+9. **`torch.load` crashes on Colab's PyTorch (>=2.6) but not locally (2.5.1)** —
+   found while actually running Ark+ in Colab. PyTorch 2.6 flipped `torch.load`'s
+   `weights_only` default to `True`, which can't unpickle numpy scalars
+   present in checkpoint dicts (`epoch`, `lossMIN`, etc.). This is **not**
+   Ark+-specific: it hit every unguarded `torch.load` in the pipeline —
+   `models.py`'s pretrained-checkpoint load (the Ark6 checkpoint itself),
+   `trainer.py`'s `test_classification()` (final test-set reload, used by
+   **every** model), and `engine.py`'s resume logic (used by every model,
+   since `args.resume=True` everywhere). All three, plus the equivalent load
+   in `ArkPlus_Gaps_Colab.ipynb`'s Gap #1 cell, now pass `weights_only=False`
+   explicitly (safe: these are either our own saved checkpoints or the
+   verified, officially-gated Ark+ release, not untrusted files). **Resynced
+   to Drive — requires a full Colab Runtime → Restart to take effect**, same
+   as any other code change (see "Code flow" above). Since this affects
+   every model's resume/test path, not just Ark+, it likely would have hit
+   SwinB/DenseNet-121/RadDino/ConvNeXtV2/SwinL too, whenever they first hit a
+   resume or test-evaluation step — worth a quick sanity check on whichever
+   model runs next, in case another `torch.load` site was missed.
 
 ## Minimal publishable plan — status
 

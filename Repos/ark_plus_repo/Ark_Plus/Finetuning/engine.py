@@ -127,7 +127,9 @@ def classification_engine(args, model_path, output_path, diseases, dataset_train
         resume = os.path.join(model_path, experiment + '.pth.tar')
         if os.path.isfile(resume):
           print("=> loading checkpoint '{}'".format(resume))
-          checkpoint = torch.load(resume)
+          # weights_only=False: same PyTorch >=2.6 default-change issue as models.py/trainer.py's
+          # checkpoint loads -- this is our own saved checkpoint, safe to trust.
+          checkpoint = torch.load(resume, weights_only=False)
 
           start_epoch = checkpoint['epoch']
           init_loss = checkpoint['lossMIN']

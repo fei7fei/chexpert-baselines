@@ -94,7 +94,9 @@ def evaluate(data_loader_val, device, model, criterion, amp_dtype=torch.bfloat16
 def test_classification(checkpoint, data_loader_test, device, args):
   model = build_classification_model(args)
 
-  modelCheckpoint = torch.load(checkpoint)
+  # weights_only=False: same PyTorch >=2.6 default-change issue as models.py's checkpoint load --
+  # this is our own saved checkpoint (state_dict/optimizer/scheduler + epoch/lossMIN/aucMAX), safe to trust.
+  modelCheckpoint = torch.load(checkpoint, weights_only=False)
   state_dict = modelCheckpoint['state_dict']
   for k in list(state_dict.keys()):
     if k.startswith('module.'):

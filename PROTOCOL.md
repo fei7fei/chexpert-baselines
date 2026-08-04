@@ -32,7 +32,7 @@ Code: https://github.com/fei7fei/chexpert-baselines
 | Val vs. test | Official 234-study CheXpert valid.csv = validation (threshold tuning / checkpoint selection only). A **held-out test set carved from train by patient ID** (15% of patients) = final reporting, touched exactly once, after training, on the single selected checkpoint |
 | Ablation subset | Fixed, stratified ~20% of train, patient-disjoint from the held-out test set |
 | Seeds | 1 (screening tier) / 2 — seeds 13, 42 (headline tier) — reduced from 3 seeds on 2026-08-03 for the Aug 5 deadline. ⚠️ This overrides the earlier explicit guidance to keep 3 seeds even under time pressure (reviewers expect the 3-seed spread) — a deliberate, acknowledged trade-off, not an oversight |
-| Metrics | Macro-AUC, macro-F1, per-class sensitivity (recall) at Youden's-J-optimal threshold, macro-accuracy, MCC, AP, ECE, epoch-to-best-AUC |
+| Metrics | Macro-AUC, macro-F1, per-class sensitivity (recall) at Youden's-J-optimal threshold, macro-accuracy, MCC, AP, ECE, epoch-to-best-AUC — ⚠️ as currently computed by `engine.py`, the Youden's-J threshold is fit on the *test* set's own labels then applied to that same set (a leak; see `SESSION_NOTES.md` bug #8). AUC/MCC/AP/ECE are threshold-independent and unaffected. F1/sensitivity/accuracy should be taken from `ArkPlus_Gaps_Colab.ipynb`'s Gap #1 cell (val-fit thresholds, applied once to test) until `engine.py` itself is fixed |
 | Resume | `args.resume = True` — safe to re-run the same cell after a Colab disconnect, resumes from the last saved epoch |
 
 ## Per-model settings (deliberately vary)

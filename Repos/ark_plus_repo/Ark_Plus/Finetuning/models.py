@@ -314,7 +314,11 @@ def load_pretrained_weights(model, init, pretrained_weights, checkpoint_key = No
     if pretrained_weights.startswith('https'):
         checkpoint = load_state_dict_from_url(url=pretrained_weights, map_location='cpu')
     else:
-        checkpoint = torch.load(pretrained_weights, map_location="cpu")
+        # weights_only=False: PyTorch >=2.6 defaults to True, which can't unpickle the numpy
+        # scalars this checkpoint's non-tensor fields (epoch, lossMIN, etc.) contain -- crashes
+        # with "Unsupported global: numpy.core.multiarray.scalar" otherwise. Safe here: this is
+        # the verified, officially-gated Ark+ release checkpoint, not an untrusted file.
+        checkpoint = torch.load(pretrained_weights, map_location="cpu", weights_only=False)
     print(checkpoint.keys())
     
     if 'state_dict' in checkpoint:
