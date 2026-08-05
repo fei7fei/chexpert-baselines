@@ -64,7 +64,34 @@ Three questions are asked of this shared design: (a) \emph{does pretraining dela
 
 \section*{Results (preliminary)}
 
-Ark+'s headline result is complete: Table~\ref{tab:results} reports held-out test performance across the five CheXpert competition classes (Atelectasis, Cardiomegaly, Consolidation, Edema, Pleural Effusion), mean $\pm$ std over 2 seeds.
+\subsection*{Pilot architecture comparison}
+
+Prior to finalizing the frozen protocol above, an earlier pilot pass trained five configurations under a shared (though non-frozen) setup: 50 epochs, single seed, evaluated on the same internal test split for all five. Swin-Large with random initialization (the same no-pretraining architecture used as the control for question (a), but not yet run under the current frozen settings), DenseNet-121, RAD-DINO, Swin Transformer \emph{V1} Base (superseded by V2 in the frozen protocol above), and ConvNeXt V2 Base. Table~\ref{tab:pilot} reports these; results are \emph{not} directly comparable to Ark+'s frozen-protocol result below, since epoch count, seed count, and protocol version all differ.
+
+\begin{table}[h]
+\centering
+\caption{Preliminary pilot comparison, non-frozen protocol (50 epochs, 1 seed, shared internal test split). Not comparable to Table~\ref{tab:results}.}
+\label{tab:pilot}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{@{}lcccccc@{}}
+\toprule
+ & AUC & MCC & AP & F1 & Recall & Accuracy \\
+\midrule
+Swin-Large (random init) & 0.880 & 0.565 & 0.691 & 0.665 & 0.788 & 0.810 \\
+DenseNet-121 & 0.873 & 0.531 & 0.687 & 0.646 & 0.856 & 0.778 \\
+RAD-DINO & 0.877 & 0.557 & 0.704 & 0.670 & 0.828 & 0.800 \\
+Swin Transformer V1 Base & 0.878 & 0.560 & 0.700 & 0.671 & 0.808 & 0.804 \\
+ConvNeXt V2 Base & 0.879 & 0.548 & 0.712 & 0.661 & 0.858 & 0.791 \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+Swin-Large led this single-seed pilot on AUC, MCC, and accuracy, but showed the \emph{lowest} sensitivity of the five (0.788) --- the same accuracy/sensitivity dissociation examined in depth for Ark+ below. The top three architectures on AUC (0.877--0.880) sit within roughly one seed's expected noise of each other, so this ranking is suggestive rather than conclusive; it will be re-tested under the frozen protocol and 2-seed headline budget above.
+
+\subsection*{Ark+ headline result}
+
+Ark+'s headline result is complete under the frozen protocol: Table~\ref{tab:results} reports held-out test performance across the five CheXpert competition classes (Atelectasis, Cardiomegaly, Consolidation, Edema, Pleural Effusion), mean $\pm$ std over 2 seeds.
 
 \begin{table}[h]
 \centering
@@ -92,7 +119,13 @@ Ark+ & $0.806\pm0.003$ & $0.472\pm0.005$ & $0.783\pm0.004$ & $0.705\pm0.008$ & $
 
 A single global temperature-scaling calibration, also fit on validation, did \emph{not} improve held-out calibration in this preliminary result (ECE increased from $\approx$0.011--0.015 to $\approx$0.070 after scaling); the fitted temperature ($T\approx1.6$) over-corrected a model whose raw outputs were already reasonably well-calibrated on this split. We report this as a genuine negative finding, likely attributable to the small (234-image) official validation set, rather than omit it.
 
-Training for the remaining five architectures --- including the Ark+/Swin-Large controlled pretraining comparison central to question (a) --- and the architecture-conditional loss-design analysis for question (c) are in progress under the identical frozen protocol above and will be presented at the conference.
+\paragraph{A specific, targetable weakness.} Per-class results show Atelectasis and Consolidation lagging on AP (0.29, 0.17 vs.\ 0.51--0.81) and F1 (0.35, 0.20 vs.\ 0.46--0.75), despite comparable AUC (0.71, 0.73 vs.\ 0.86--0.88) --- a precision/recall problem, not a ranking problem, consistent with class imbalance.
+
+\textbf{First intervention, already tested.} Class-weighted BCE --- one of Ark+'s original components stripped for this comparison --- was reintroduced as a quick screening-tier test (1 seed, 20\% subset), with \texttt{pos\_weight} set from the real per-class balance. It already improves the model on the classes it targets: at the naive 0.5 threshold, F1 rose substantially for both (Atelectasis $0.02\!\to\!0.33$, Consolidation $0.01\!\to\!0.19$). AP moved slightly down for every class ($-0.01$ to $-0.02$), so this reflects a shifted operating point rather than confirmed better ranking, and may overlap with what threshold-tuning alone (Figure~\ref{fig:threshold}) already recovers without retraining. Screening-tier, 1-seed signal, not yet confirmed at headline tier.
+
+\textbf{Remaining planned interventions}, by cost: (i) the asymmetric/focal loss analysis in question (c); (ii) a larger, patient-disjoint threshold-tuning split; (iii) DenseNet-121/Ark+ logit fusion, if DenseNet-121 shows a complementary error pattern; and (iv) class-balanced oversampling.
+
+Training for the remaining five architectures under the current frozen protocol --- including the Ark+/Swin-Large controlled pretraining comparison central to question (a) --- and the architecture-conditional loss-design analysis for question (c) are in progress and will be presented at the conference.
 
 \section*{Novel and Breakthrough Aspects}
 
@@ -100,7 +133,7 @@ To our knowledge this is among the first independent evaluations of Ark+ (publis
 
 \section*{Related Work}
 
-CheX-DS \cite{chexds2025} ensembles DenseNet and a Swin Transformer with a weighted BCE plus asymmetric loss on NIH ChestX-ray14, reporting 83.76\% average AUC. Our work differs in dataset (CheXpert vs.\ ChestX-ray14), in scope (six architectures under one frozen protocol vs.\ one proposed ensemble), and in framing: we do not propose an ensembling method or claim novelty for asymmetric loss itself; question (c) instead asks, architecture-conditionally, whether large-scale pretraining already absorbs the long-tail imbalance that motivates such losses in the first place. A DenseNet-121/Ark+ logit-fusion analysis is planned as a subordinate diagnostic, not a headline contribution, given CheX-DS's prior ensemble result.
+CheX-DS \cite{chexds2025} ensembles DenseNet and a Swin Transformer with weighted BCE plus asymmetric loss on NIH ChestX-ray14 (83.76\% average AUC). We differ in dataset (CheXpert vs.\ ChestX-ray14), scope (six architectures under one frozen protocol vs.\ one ensemble), and framing: we claim no novelty for ensembling or asymmetric loss; question (c) instead asks, architecture-conditionally, whether large-scale pretraining already absorbs the long-tail imbalance such losses target. The planned DenseNet-121/Ark+ fusion (above) stays a subordinate diagnostic, not a headline contribution, given CheX-DS's prior ensemble result.
 
 \section*{Conclusion}
 
@@ -110,8 +143,11 @@ Under identical protocol conditions, Ark+ shows a large, real gap between headli
 
 [FILL IN --- required field. State here whether this work, or any subset of it, has been submitted, presented, or published elsewhere, or state that it has not.]
 
+\footnotesize
 \bibliographystyle{plain}
 \begin{thebibliography}{9}
+\setlength{\itemsep}{0pt}
+\setlength{\parskip}{0pt}
 
 \bibitem{ma2025ark}
 D.~Ma, J.~Pang, M.~B.~Gotway, and J.~Liang,

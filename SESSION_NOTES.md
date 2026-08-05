@@ -164,15 +164,160 @@ not just re-running cells.
    SwinB/DenseNet-121/RadDino/ConvNeXtV2/SwinL too, whenever they first hit a
    resume or test-evaluation step — worth a quick sanity check on whichever
    model runs next, in case another `torch.load` site was missed.
+10. **`pos_weight` computed against the wrong label semantics** (found while
+    building the class-weighted BCE follow-up test). The first version
+    computed `pos_weight = neg_count / pos_count` counting only rows with a
+    *definite* 0 or 1 label, excluding uncertain (-1) and blank rows entirely.
+    But this protocol trains with `uncertain_label="Zeros"` and
+    `unknown_label=0` — both uncertain *and* blank become negative at
+    training time. Excluding them from the weight computation understates
+    the true negative count badly for any class with lots of uncertain
+    labels. Verified against the real CheXpert train.csv: for Atelectasis,
+    the buggy formula gave `pos_weight=0.04`; the correct one (matching what
+    training actually does) gives `≈5.7` — off by ~140x, and in the wrong
+    direction (the buggy version would have *down*-weighted the exact class
+    the test was meant to help). Fixed in
+    `ArkPlus_AbstractImprovementTest_Colab.ipynb` cell 16: `pos_weight =
+    (n - pos_count) / pos_count`, i.e. everything that isn't a definite 1
+    counts as negative, matching training-time semantics exactly. Caught
+    before the flawed version finished training (interrupted a few epochs
+    in), so no wasted GPU time, but this is exactly the kind of bug that
+    would have produced a plausible-looking, silently-wrong result if it had
+    run to completion.
+11. **Stale cached test predictions crashed the plain-BCE screening run** —
+    unrelated to bug #10, hit while finishing the screening tier's training.
+    `engine.py`'s "start testing" phase checks whether a prediction/`gt.csv`
+    already exists for the experiment and, if so, reads the cached file
+    instead of recomputing. `_protocol1_arkplus_screening`'s folder had a
+    leftover cache from a much older run (before the current "train on all
+    14 labels, report on 5" convention), so the cached arrays had 5 columns;
+    the current code then tried to index that 5-column array with 14-class
+    indices (`test_diseases_5`, which goes up to index 8) → `IndexError`.
+    Training itself was fine; only the cache-read shortcut was stale. Fixed
+    by deleting the two stale files (`gt.csv` and the experiment's
+    prediction `.csv`) so it recomputed fresh. **If any other model's
+    screening/headline folder throws the same `IndexError` at the "start
+    testing" stage, check for the same stale-cache cause before assuming a
+    training bug.**
+12. **Notebook cell had a literal newline embedded inside an f-string opener**
+    — a self-inflicted bug from editing `ArkPlus_AbstractImprovementTest_Colab.ipynb`'s
+    JSON directly: one source-list entry contained an actual `\n` byte
+    instead of the two-character escape sequence, so the pasted/executed
+    cell read as `print(f"` followed by a real line break — invalid syntax
+    outside a triple-quoted string (`SyntaxError: unterminated f-string
+    literal`). Root cause was a shell heredoc silently mangling backslash
+    escaping during one edit pass. Fixed by writing the replacement through
+    a standalone `.py` script file (no shell involved) instead of an inline
+    heredoc, and verified by `compile()`-checking every code cell in the
+    notebook. **If editing notebook JSON source lists directly again, avoid
+    bash heredocs for anything containing `\n`/backslash escapes — write a
+    script file instead and verify with `compile()` before telling the user
+    it's fixed.**
 
 ## Minimal publishable plan — status
 
 Per the original plan doc: 5(-6) baselines + Gap #1 (calibration/thresholds) +
 Gap #3 (asymmetric/focal loss) + the free 50-epoch overfitting-dynamics
 analysis (now trivial: `idxmax()` on the epoch table, since checkpoint
-selection is AUC-based). Nothing built this session weakens this plan —
-if anything the val/test leak fix and the extra SwinL control strengthen it.
-**Gap #1 and Gap #3 are not yet built** — still fully outstanding.
+selection is AUC-based). Nothing built weakens this plan — if anything the
+val/test leak fix and the extra SwinL control strengthen it.
+
+**Updated 2026-08-05 (deadline day):**
+- **Gap #1 — done.** Built, run, real data. Table 3's Sensitivity column and
+  Figure 1 (accuracy-vs-sensitivity by threshold policy) both come from it.
+- **Gap #3 (ASL/focal loss) — still not built.** Too much engineering for the
+  Aug 5 deadline. A smaller stand-in was built instead: class-weighted BCE
+  (one of Ark+'s original 3 stripped components, not a new loss), tested on
+  the screening tier only. See "Class-weighted BCE proof-of-concept" below.
+  Gap #3 itself is still fully outstanding, deferred to the Jan 2027
+  manuscript.
+- **The Ark+ headline run is complete** — real weights, 2 seeds, 30 epochs.
+  This is the one number in the abstract that's fully protocol-compliant.
+- **The other 5 architectures have not been run under this protocol at all.**
+  What's in the current PDF for them is pilot data from before the frozen
+  protocol existed (see "Data-integrity issues caught before submission"
+  below for why that distinction had to be made explicit).
+- **The SPIE supplemental PDF itself is built and submission-shaped** — see
+  "SPIE supplemental PDF — status" below.
+
+## SPIE supplemental PDF — status
+
+`SPIE_Abstract/spie_supplemental.tex` (compiles to `spie_supplemental.pdf`).
+Structure: Title/Authors → Purpose → Methods (frozen protocol table) →
+Results (pilot 5-architecture table, then the real Ark+ headline result:
+table, threshold-policy figure, calibration finding, the class-weighted BCE
+follow-up) → Novel/Breakthrough Aspects → Related Work → Conclusion →
+Disclosure of Prior/Concurrent Submissions → References.
+
+Verified as of last compile: **4 pages** (within SPIE's 2-4 page spec —
+references start on page 4, so it's within budget even before applying
+SPIE's "not counting acknowledgements and references" rule), **Letter size**
+(612×792pt, confirmed from the PDF's own MediaBox), **margins** match spec
+(0.88in L/R, 1.0in top, 1.25in bottom, confirmed via `geometry`'s verbose
+layout report), **zero LaTeX warnings** on the last clean compile.
+
+**Two placeholders still need the user's input, not more engineering:**
+1. Author name(s), affiliation, corresponding-author email (currently
+   `[Author Name(s)]` / `[Affiliation, ...]` / `[email]` in the `\author{}`
+   block).
+2. Disclosure of Prior or Concurrent Submissions statement (currently
+   `[FILL IN — required field]`) — whether this work or any subset of it has
+   been submitted/presented/published elsewhere.
+
+**Also not yet drafted** (separate text fields on SPIE's submission form,
+not part of the PDF): the 200-300 word technical-review abstract, and the
+50-150 word program-display summary. Both are shorter and differently-scoped
+than the PDF content — see the SPIE submission-requirements discussion for
+what each field is actually for.
+
+## Data-integrity issues caught before submission
+
+All three found by comparing an earlier slide/PDF against the underlying
+result files — worth knowing about so they aren't reintroduced:
+
+1. **A dataset labeled "Ark+" was actually the random-init (SwinL) run.**
+   Proven two ways: it numerically matched a `random_50ep_results.txt` file
+   exactly, and no real Ark+ checkpoint existed yet at the time that data was
+   produced. A run without Ark+'s pretrained weights loaded is just SwinL —
+   there's no such thing as "Ark+ trained from random init," that's a
+   contradiction in terms for what makes it Ark+.
+2. **An old "SwinB" checkpoint was actually a different, deprecated
+   architecture.** Its `relative_position_index` shape (49×49, implying
+   `window_size=7`) and patch-embed shape matched old Swin **V1** Base via
+   `timm`, not the Swin **V2** Base (`transformers`) that "SwinB" means under
+   the current protocol. Kept in the pilot table but explicitly relabeled
+   "Swin Transformer V1 Base," not "SwinB," to avoid misrepresenting it as
+   the current architecture.
+3. **The first pilot table mixed two evaluation methodologies** — 3
+   architectures' numbers came from one source, 2 from another, inconsistently.
+   Rebuilt from a single consistent source (`results.txt`) for all 5 once the
+   inconsistency was noticed.
+
+Also refused, both times asked: stating any architecture is unqualifiedly
+"best" (SwinL wins 3/6 pilot metrics but is *last* on sensitivity — the
+honest framing is hedged, not a ranking claim), and fabricating a numeric
+improvement estimate for any not-yet-run intervention.
+
+## Class-weighted BCE proof-of-concept
+
+Built same-day (Aug 5) as a fast, real alternative to fabricating an
+improvement estimate for the abstract's "planned interventions" list — see
+bugs #10-12 above for what went wrong building it, and `PROTOCOL.md`'s
+"Results status" for where the code and checkpoints live.
+
+**Real result** (1 seed, 20% screening subset, naive 0.5 threshold): F1 rose
+substantially on both classes the intervention targets — Atelectasis
+0.02→0.33, Consolidation 0.01→0.19 — while AP moved slightly *down* on every
+one of the 5 competition classes (−0.01 to −0.02). Read honestly, not as an
+unambiguous win: this pattern is consistent with `pos_weight` shifting the
+model's output probabilities upward (so more predictions cross a fixed
+threshold) rather than actually improving ranking quality, and it may
+substantially overlap with what validation-tuned thresholding (already in
+the PDF as Figure 1) recovers *without any retraining at all*. Whether
+class-weighting adds anything beyond what free threshold-tuning already
+gives is genuinely unresolved — flagged as such in the PDF rather than
+claimed as a clean additive win. Screening-tier, 1-seed — not a headline-tier
+confirmed result.
 
 ## Explicit guidance received and followed
 
@@ -197,17 +342,39 @@ if anything the val/test leak fix and the extra SwinL control strengthen it.
 ## Open decisions (unresolved as of this file's writing)
 
 1. Warmup epochs: currently 1, plan doc wants 2 ("since 50 epochs") — not yet
-   changed, needs a call.
-2. Whether to build Gap #1 (calibration/thresholds) now, in parallel with
-   baseline training runs.
+   changed, needs a call. Lowest-priority open item in the whole project.
+2. ~~Whether to build Gap #1 (calibration/thresholds) now~~ — resolved, built,
+   done. See "SPIE supplemental PDF — status" above.
 3. Real-world confirmation of the dataloader speedup changes (see bug #6
    above) — needs a fresh Colab restart and a shared progress-log snippet.
+   Still outstanding, still low-priority relative to everything below.
+4. **New, highest priority**: the other 5 architectures (SwinL, SwinB V2,
+   DenseNet-121, RadDino, ConvNeXtV2) still need to actually run under this
+   frozen protocol — nothing currently reported for them beyond old pilot
+   data. This is the real gap between the Aug 5 abstract and the Jan 2027
+   final manuscript.
+5. Whether class-weighted BCE's F1 gain (see "Class-weighted BCE
+   proof-of-concept" above) is additive over validation-tuned thresholding
+   or substantially redundant with it — not yet tested, would need running
+   the plain-BCE screening checkpoint through the same threshold-tuning
+   analysis Gap #1 already does and comparing.
+6. Two PDF placeholders (author info, disclosure statement) — waiting on the
+   user, not an engineering task.
 
 ## How to pick this up cold
 
 1. `git pull` — gets `PROTOCOL.md`, this file, and every notebook/code change.
-2. Check whether any Colab training runs are already in progress (Drive
+2. Read `PROTOCOL.md`'s "Results status" section first — it says, as of
+   right now, which of the 6 architectures actually have a real result under
+   the frozen protocol (as of 2026-08-05: only Ark+) vs. old pilot data.
+3. Check whether any Colab training runs are already in progress (Drive
    folders `<model>_chexpert_checkpoints/` under experiment names
    `_protocol1_<model>_screening` / `_headline`) before starting anything new,
    to avoid an accidental duplicate/colliding run.
-3. `PROTOCOL.md`'s "Open items" section is the actual TODO list.
+4. `PROTOCOL.md`'s "Open items" section is the actual TODO list.
+5. The submittable deliverable is `SPIE_Abstract/spie_supplemental.tex` — see
+   "SPIE supplemental PDF — status" above for its current state and the two
+   remaining placeholders. If asked to work on "the abstract," this file (not
+   a separate abstract document) is almost always what's meant — the actual
+   200-300 word abstract/50-150 word summary are separate text fields typed
+   directly into SPIE's submission form, not yet drafted anywhere in the repo.
