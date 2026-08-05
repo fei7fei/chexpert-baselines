@@ -19,11 +19,10 @@
 
 \title{\vspace{-1.5em}\Large\bfseries Does Medical Pretraining Change What a Chest-Radiograph Classifier Needs?\\[2pt] A Frozen-Protocol Comparison on CheXpert}
 
-% ---- FILL IN: department and corresponding-author email still needed ----
 \author{
-  Pei Lin Xie\textsuperscript{a} and Yi-an Su\textsuperscript{a} \\[2pt]
-  \small \textsuperscript{a}University of British Columbia Okanagan, [Department], Kelowna, BC, Canada \\
-  \small Corresponding author: [email]
+  Pei Lin Xie\textsuperscript{a} and Yi-An Su\textsuperscript{a} \\[2pt]
+  \small \textsuperscript{a}University of British Columbia Okanagan, School of Engineering, Kelowna, BC, Canada \\
+  \small Corresponding authors: Pei Lin Xie (michaelxie981@gmail.com), Yi-An Su (syaset0616@gmail.com)
 }
 \date{}
 
@@ -91,18 +90,18 @@ Swin-Large led this single-seed pilot on AUC, MCC, and accuracy, but showed the 
 
 \subsection*{Ark+ headline result}
 
-Ark+'s headline result is complete under the frozen protocol: Table~\ref{tab:results} reports held-out test performance across the five CheXpert competition classes (Atelectasis, Cardiomegaly, Consolidation, Edema, Pleural Effusion), mean $\pm$ std over 2 seeds.
+Ark+'s headline result is complete under the frozen protocol: Table~\ref{tab:results} reports held-out test performance across the five CheXpert competition classes (Atelectasis, Cardiomegaly, Consolidation, Edema, Pleural Effusion), reported as the min--max range over the 2 seeds (a range, not a standard deviation, is the appropriate spread statistic for two runs).
 
 \begin{table}[h]
 \centering
-\caption{Ark+ held-out test performance, mean $\pm$ std over 2 seeds (13, 42).}
+\caption{Ark+ held-out test performance, min--max range over 2 seeds (13, 42).}
 \label{tab:results}
 \resizebox{\textwidth}{!}{%
 \begin{tabular}{@{}lccccccc@{}}
 \toprule
  & AUC & F1 & Sensitivity & Accuracy & MCC & AP & ECE \\
 \midrule
-Ark+ & $0.806\pm0.003$ & $0.472\pm0.005$ & $0.783\pm0.004$ & $0.705\pm0.008$ & $0.369\pm0.006$ & $0.480\pm0.004$ & $0.013\pm0.002$ \\
+Ark+ & 0.803--0.809 & 0.467--0.477 & 0.779--0.787 & 0.697--0.713 & 0.363--0.375 & 0.476--0.484 & 0.011--0.015 \\
 \bottomrule
 \end{tabular}%
 }
@@ -141,7 +140,7 @@ Under identical protocol conditions, Ark+ shows a large, real gap between headli
 
 \section*{Disclosure of Prior or Concurrent Submissions}
 
-[FILL IN --- required field. State here whether this work, or any subset of it, has been submitted, presented, or published elsewhere, or state that it has not.]
+This work, in whole or in part, has not been previously submitted, presented, or published elsewhere, and is not under concurrent consideration by any other conference or journal.
 
 \vspace{-14pt}
 \footnotesize
