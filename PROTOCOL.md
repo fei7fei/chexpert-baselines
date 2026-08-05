@@ -107,7 +107,8 @@ blended into one unlabeled number.
 4. Gap #2 (DenseNet fusion), Gap #4 (LoRA), Gap #5 (GRN) — deferred per the plan's own prioritization; unaffected by anything above.
 5. Log-CPB (full transplant into Ark+) — still correctly deferred to January. Note: building real Swin V2 for SwinB already gives a small, free, verified data point supporting that story (zero dropped backbone weights transferring across window sizes at 320px, vs. V1's ~0.4% dropped) — worth a sentence in Methods/Related Work now.
 6. **The big remaining item**: SwinL, SwinB (V2), DenseNet-121, RadDino, ConvNeXtV2 have never been run under this frozen protocol. Everything for them in the current PDF is old pilot data from before this protocol existed. This is the actual bottleneck between the Aug 5 abstract and a complete final manuscript (due 27 Jan 2027) — see "Results status" above.
-7. Two PDF placeholders need user-supplied info, not further engineering: author/affiliation/contact block, and the Disclosure of Prior/Concurrent Submissions statement. Both in `SPIE_Abstract/spie_supplemental.tex`.
+7. PDF placeholders, updated 2026-08-05: authors filled in (Pei Lin Xie, Yi-an Su, UBCO). Still open — department name, corresponding-author email, and the Disclosure of Prior/Concurrent Submissions statement. All in `SPIE_Abstract/spie_supplemental.tex` (and mirrored in `spie_abstract_text.tex`'s author block — keep both in sync).
+8. The 200-300 word technical-review abstract is drafted (`SPIE_Abstract/spie_abstract_text.tex`). The 50-150 word program-display summary is not yet drafted — separate, shorter, more audience-facing SPIE form field.
 
 ## Where things live
 

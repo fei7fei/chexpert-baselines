@@ -254,21 +254,77 @@ references start on page 4, so it's within budget even before applying
 SPIE's "not counting acknowledgements and references" rule), **Letter size**
 (612×792pt, confirmed from the PDF's own MediaBox), **margins** match spec
 (0.88in L/R, 1.0in top, 1.25in bottom, confirmed via `geometry`'s verbose
-layout report), **zero LaTeX warnings** on the last clean compile.
+layout report), **zero LaTeX warnings**, every `\cite`/`\bibitem` pair and
+every `\ref`/`\label` pair resolves (checked programmatically, not just by
+eye) on the last clean compile, 2026-08-05.
 
-**Two placeholders still need the user's input, not more engineering:**
-1. Author name(s), affiliation, corresponding-author email (currently
-   `[Author Name(s)]` / `[Affiliation, ...]` / `[email]` in the `\author{}`
-   block).
-2. Disclosure of Prior or Concurrent Submissions statement (currently
-   `[FILL IN — required field]`) — whether this work or any subset of it has
-   been submitted/presented/published elsewhere.
+**Updated 2026-08-05, later same day:**
+- **Authors filled in**: Pei Lin Xie and Yi-an Su, University of British
+  Columbia Okanagan (UBCO). Still open: department name and corresponding-
+  author email (both currently `[Department]` / `[email]` placeholders).
+- **Disclosure of Prior or Concurrent Submissions** — still `[FILL IN —
+  required field]`. Only remaining true placeholder in the PDF.
+- **A review-audit pass was run against the PDF** (not a rewrite — see
+  "External academic-writing skill repos" below for why that distinction
+  matters) using an adversarial 8-dimension challenge framework plus a
+  5-dimension self-review checklist, both borrowed from third-party Claude
+  Code skill repos. Two real, cheap fixes came out of it and are now in the
+  PDF: (1) Purpose now discloses up front that only 1 of 6 architectures is
+  complete, instead of only becoming clear once the reader reaches Results;
+  (2) Table 1's Seeds row now states "reduced from 3" directly in the PDF
+  (previously that fact only lived in this file / `PROTOCOL.md`, not in the
+  submission itself). Full finding list, including the ones that were
+  checked and came back clean, is in this conversation's transcript, not
+  duplicated here.
+- **`SPIE_Abstract/spie_abstract_text.tex`** — new, separate file. A clean,
+  standalone 1-page PDF of just the 200-300 word technical-review abstract +
+  keywords, for the user's own reference (SPIE's form wants this as pasted
+  text, not a file — this PDF is not itself submitted anywhere). Same
+  author block as the main PDF; keep both in sync if authors/affiliation
+  change again.
+- **The 200-300 word abstract is drafted** (in `spie_abstract_text.tex` and
+  this conversation) — built by drafting three versions against three
+  different structural methodologies (a direct version, a 5-component
+  Background/Purpose/Method/Findings/Implications version, and a
+  Challenge→Insight→Contribution version) and merging the strongest parts.
+  All three drafts, and the merge, are real data only — no new numbers, just
+  restructured prose. One overclaim was caught and fixed during this
+  process: an early draft said the remaining 5 architectures "are in
+  progress/being trained," which overstates their actual status (not yet
+  started, per "Results status" in `PROTOCOL.md`) — corrected to "planned."
+- **Still not drafted**: the 50-150 word program-display summary (shorter,
+  more audience-facing than the technical abstract — separate SPIE form
+  field, not part of any PDF).
 
-**Also not yet drafted** (separate text fields on SPIE's submission form,
-not part of the PDF): the 200-300 word technical-review abstract, and the
-50-150 word program-display summary. Both are shorter and differently-scoped
-than the PDF content — see the SPIE submission-requirements discussion for
-what each field is actually for.
+## External academic-writing skill repos (used for methodology only, not installed as active tooling)
+
+Two third-party Claude Code skill/plugin repos were cloned to
+`~/.claude/external-skills/` on 2026-08-05, at the user's request, to help
+draft the abstract and review the PDF:
+
+- `Master-cai/Research-Paper-Writing-Skills` — a lightweight skill (no
+  executable code, just `SKILL.md` + reference/example markdown). Also
+  copied to `~/.claude/skills/research-paper-writing/` (user scope) so it's
+  available as a real invocable skill in future sessions. Its abstract
+  template (Challenge→Insight→Contribution) and its `paper-review.md`
+  adversarial checklist were both used directly.
+- `Imbad0202/academic-research-skills` — a much larger plugin (13-38 agent
+  pipeline, hooks, Python enforcement scripts, real CI). **Not activated as
+  a live plugin** — `/plugin install` was attempted and found unavailable in
+  this specific environment (VSCode-hosted Claude Agent SDK session, not the
+  standalone CLI where it may work). Instead, its `abstract_bilingual_agent`
+  and `devils_advocate_reviewer_agent` persona files were read directly and
+  their *substantive* review/writing methodology applied by hand — their
+  machine-oriented orchestration scaffolding (contract JSON, sprint phases,
+  synthesizer handoff format) was deliberately not replicated, since it only
+  makes sense inside their full pipeline, which isn't running here.
+- **If picking this up on a different machine**: neither repo is required
+  for anything — everything they contributed (the abstract text, the two
+  PDF fixes) is already committed as plain content. They're only relevant
+  again if someone wants to draft *new* sections the same way, or actually
+  get repo 1 running as a live plugin (would need the standalone CLI and a
+  deliberate decision to trust its hooks/scripts — see this conversation's
+  transcript for the full risk discussion before doing that).
 
 ## Data-integrity issues caught before submission
 

@@ -19,10 +19,10 @@
 
 \title{\vspace{-1.5em}\Large\bfseries Does Medical Pretraining Change What a Chest-Radiograph Classifier Needs?\\[2pt] A Frozen-Protocol Comparison on CheXpert}
 
-% ---- FILL IN: author names, affiliations, contact ----
+% ---- FILL IN: department and corresponding-author email still needed ----
 \author{
-  [Author Name(s)]\textsuperscript{a} \\[2pt]
-  \small \textsuperscript{a}[Affiliation, Department, Institution, City, State/Country] \\
+  Pei Lin Xie\textsuperscript{a} and Yi-an Su\textsuperscript{a} \\[2pt]
+  \small \textsuperscript{a}University of British Columbia Okanagan, [Department], Kelowna, BC, Canada \\
   \small Corresponding author: [email]
 }
 \date{}
@@ -33,7 +33,7 @@
 
 \section*{Purpose}
 
-Chest-radiograph classifiers are conventionally reported by AUC or overall accuracy, metrics that can conceal a severe, clinically disqualifying failure mode on a long-tailed, multi-label diagnostic task: a model can score highly on accuracy while missing most true positives. Large-scale medical pretraining --- exemplified by Ark+ \cite{ma2025ark}, trained across six chest-radiograph datasets --- is increasingly used to build chest X-ray foundation models, but it remains unclear whether such pretraining actually changes what a classifier \emph{needs}: how long it must train before overfitting, how well-calibrated its raw outputs are, and whether it still benefits from long-tail-aware loss design once large-scale pretraining is present. This work asks those three questions directly, under a single frozen protocol, rather than proposing a new architecture or loss.
+Chest-radiograph classifiers are conventionally reported by AUC or overall accuracy, metrics that can conceal a severe, clinically disqualifying failure mode on a long-tailed, multi-label diagnostic task: a model can score highly on accuracy while missing most true positives. Large-scale medical pretraining --- exemplified by Ark+ \cite{ma2025ark}, trained across six chest-radiograph datasets --- is increasingly used to build chest X-ray foundation models, but it remains unclear whether such pretraining actually changes what a classifier \emph{needs}: how long it must train before overfitting, how well-calibrated its raw outputs are, and whether it still benefits from long-tail-aware loss design once large-scale pretraining is present. This work asks those three questions directly, under a single frozen protocol, rather than proposing a new architecture or loss. This preliminary submission reports Ark+, the first of six architectures, complete under that protocol; the remaining five are in progress.
 
 \section*{Methods}
 
@@ -54,7 +54,7 @@ Epochs & 30, checkpoint selected by best \emph{validation} macro-AUC \\
 Validation set & Official CheXpert \texttt{valid.csv} (234 studies) \\
 Test set & Patient-disjoint held-out (15\% of patients), touched once, after training \\
 Uncertain labels & U-Zeros (headline); U-Ones as an appendix sensitivity check \\
-Seeds & 2 for headline results (13, 42), 1 for screening \\
+Seeds & 2 headline (13, 42; reduced from 3), 1 screening \\
 Metrics & Macro-AUC, F1, sensitivity, accuracy, MCC, AP, ECE \\
 \bottomrule
 \end{tabular}
@@ -143,6 +143,7 @@ Under identical protocol conditions, Ark+ shows a large, real gap between headli
 
 [FILL IN --- required field. State here whether this work, or any subset of it, has been submitted, presented, or published elsewhere, or state that it has not.]
 
+\vspace{-14pt}
 \footnotesize
 \bibliographystyle{plain}
 \begin{thebibliography}{9}

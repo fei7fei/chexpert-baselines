@@ -1,0 +1,33 @@
+\documentclass[11pt]{article}
+
+\usepackage[letterpaper, margin=1in]{geometry}
+\usepackage{times}
+\usepackage[T1]{fontenc}
+
+\title{\vspace{-1.5em}\Large\bfseries Does Medical Pretraining Change What a Chest-Radiograph Classifier Needs?\\[2pt] A Frozen-Protocol Comparison on CheXpert}
+
+% ---- FILL IN: department and corresponding-author email still needed (same as spie_supplemental.tex) ----
+\author{
+  Pei Lin Xie\textsuperscript{a} and Yi-an Su\textsuperscript{a} \\[2pt]
+  \small \textsuperscript{a}University of British Columbia Okanagan, [Department], Kelowna, BC, Canada \\
+  \small Corresponding author: [email]
+}
+\date{}
+
+\begin{document}
+\maketitle
+\vspace{-2em}
+
+\begin{center}
+{\large\bfseries Abstract for Technical Review}\\[2pt]
+\small (SPIE submission form text field --- 200-300 words --- not part of the uploaded supplemental PDF)
+\end{center}
+
+\vspace{1em}
+\noindent
+Chest-radiograph classifiers are conventionally reported by AUC or overall accuracy, metrics that can conceal a severe, clinically disqualifying failure mode on long-tailed, multi-label diagnostic tasks: a model can score highly on accuracy while missing most true positives. It is also unclear whether large-scale medical pretraining, as in Ark+, changes what such a classifier actually needs. Our insight is that isolating pretraining's effect requires an architecture-matched no-pretraining control, and that closing the accuracy-sensitivity gap may not require retraining at all, only validation-tuned operating-point selection applied once to a held-out set. We implement this as a single frozen protocol across six architectures on CheXpert: Ark+, its matched control, and four ImageNet/DINOv2-pretrained comparisons, with per-label thresholds and temperature calibration fit on validation only and applied once to a patient-disjoint held-out test. Using Ark+'s complete headline result (AUC 0.806, 2 seeds, 30 epochs), three findings emerged: (a) at the naive 0.5 threshold, Ark+ reaches 0.86 accuracy but only 0.29--0.32 sensitivity, missing roughly seven in ten true positives, recoverable to 0.73--0.84 through validation-tuned thresholding at unchanged AUC; (b) single-temperature calibration did not improve held-out calibration on the small official validation set, a genuine negative finding; (c) a targeted, screening-tier test reintroducing class-weighted BCE substantially recovered F1 on the two weakest classes, Atelectasis and Consolidation (0.02 to 0.33, 0.01 to 0.19), though ranking quality (AP) did not improve, consistent with a shifted operating point rather than a confirmed model improvement. These results suggest that translating classifier accuracy into clinically usable sensitivity depends heavily on operating-point selection, not architecture or pretraining choice alone. The remaining five architectures are planned under the same frozen protocol to test these questions directly, with full results presented at the conference.
+
+\vspace{1.5em}
+\noindent\textbf{Keywords:} medical image classification, class imbalance, model calibration, decision threshold selection, foundation models, deep learning, computer-aided diagnosis
+
+\end{document}
