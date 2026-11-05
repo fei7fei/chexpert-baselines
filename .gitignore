@@ -8,3 +8,9 @@ __pycache__/
 *.ckpt
 .ipynb_checkpoints/
 mimic-cxr-2.0.0-train.csv
+
+# LaTeX build files
+SPIE_*/*.aux
+SPIE_*/*.log
+SPIE_*/*.out
+missfont.log
