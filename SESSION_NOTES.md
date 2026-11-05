@@ -6,6 +6,36 @@ Claude Code session anywhere), read this first; it has the context a plain
 `git log` won't give you. The technical protocol itself is in `PROTOCOL.md`,
 kept separate so it doesn't get buried in narrative.
 
+## 2026-11-05: read this first
+
+**Golden rule:** the submitted abstract and supplemental PDF cannot change, and everything follows them. See `PROTOCOL.md` → "Golden rule" for the decisions taken under it. In short: the LR-scheduler behaviour and `engine.py`'s metric code stay exactly as Ark+ ran; the test set is the held-out 15% only; RAD-DINO's batch size is now 64.
+
+What was found and changed in this session:
+
+1. **LR schedule.** `engine.py` calls `lr_scheduler.step(val_loss)`. timm 0.5.4 reads that as the epoch number, so the LR never leaves warmup: ≈2.0–2.5e-5 after epoch 1, no decay (Ark+'s epoch tables). This is inherited from upstream Ark (`Ark_MICCAI2023/engine.py` does the same). **Kept on purpose, so don't fix it.**
+2. **Table 3 = `engine.py`'s test-fit metrics.** The submitted Table 3's F1, Sensitivity, Accuracy and MCC equal `results/arkplus/_protocol1_arkplus_headline_results.txt` exactly, with Youden thresholds fit on the test labels (bug #8 below). Figure 1 is the validation-tuned analysis. **Don't "fix" bug #8 in `engine.py`/`utils.py`**, or the baselines stop being comparable with Table 3.
+3. **Ark+'s screening run on Drive was altered on 2026-08-05.** Re-running the baseline cell with `resume=True` reloaded the finished run's best checkpoint and retrained from there, three times. The Drive screening checkpoint now gives test mAUC 0.7922 (the protocol run gave 0.7914), its results file has 4 test blocks, and the early epoch-table rows are gone. The headline run_0 epoch table on Drive was cut to 2 rows; the headline checkpoints are intact. **The Mac copies (`checkpoints/arkplus/`, `results/arkplus/`, from the 4 Aug export) are the clean originals.** Also check whether the abstract's class-weighted BCE comparison (plain screening F1 at 0.5) used the altered checkpoint.
+4. **`engine.py` resume and test fixes.** These don't change any number from an uninterrupted run; that was verified byte-for-byte against the old engine on CPU with a stubbed model:
+   - runs already in `models.log` are skipped, never retrained;
+   - an interrupted run resumes exactly from `<run>_last.pth.tar` (written every epoch, deleted at the end);
+   - a finished experiment isn't re-tested;
+   - duplicate `models.log` lines are tested once.
+   - **Bug #11's real cause** was code, not stale files: cached test CSVs already hold only the 5 reported classes, and the test step subset them again with 14-class indices. Any re-run that found its own cached predictions crashed with that `IndexError`. Fixed.
+5. **Split verified.** Rebuilding the split from CheXpert-small `train.csv` with the protocol's code reproduces Ark+'s held-out `gt.csv` row for row: held-out test 33,055 images / 9,681 patients; train pool 190,359 / 54,859; screening subset 38,186 / 10,971; valid 234. Every baseline notebook now asserts these counts before training.
+6. **Baseline notebooks** (SwinL, SwinB, DenseNet121, RadDino, ConvNeXtV2):
+   - the split guard above;
+   - an `env_<model>_<utc>.json` record of torch/timm/transformers versions and md5s of the training code;
+   - RAD-DINO batch size 32 → 64;
+   - `args.init` labels corrected (RAD-DINO / ConvNeXtV2 always loaded their pretrained weights; the label said "random").
+
+   The config cells now differ from Ark+'s only in model identity, plus Swin V2-B's bf16.
+7. **`AllModels_Gaps_Colab.ipynb`** runs Figure 1's analysis for all six models and refuses to continue unless it re-derives Figure 1 for Ark+. Checked locally with the clean Ark+ seed-13 checkpoint: 0.5 → 0.8603 / 0.3194; Youden → 0.6634 / 0.8351; F1-optimal → 0.7180 / 0.7275 (accuracy / sensitivity; Figure 1: 0.86/0.32, 0.66/0.84, 0.72/0.73); T = 1.634 (PDF: "≈1.6").
+
+Training-code fingerprint after this session (md5, as committed; each run's `env_*.json` should show the same if Drive was resynced):
+`engine.py 2ed0079a8382cd544d431d35b333b20a`, `trainer.py 81a7b663861c20ee0b0157e51b1cddf1`, `models.py e0ced0f809680aaebfc97ec3fd6d0e14`, `dataloader.py 6aba3a804bb10625a49c9027734a7b76`, `utils.py a7c17deb55d24e826c74b46ad848c441`.
+
+Ark+ wall-clock times, from Drive file timestamps: screening ≈1.3 h, each headline seed ≈6.5–7 h.
+
 ## The deadline this is actually for
 
 **SPIE Medical Imaging 2027, Computer-Aided Diagnosis track.** Verified via live

@@ -26,6 +26,45 @@ from timm.utils import NativeScaler
 sys.setrecursionlimit(40000)
 
 
+def _logged_experiments(log_file):
+  # Run names already listed in models.log, i.e. runs whose training loop finished.
+  if not os.path.isfile(log_file):
+    return set()
+  with open(log_file) as f:
+    return {line.split()[0] for line in f if line.strip()}
+
+
+def _already_tested(output_file, model_path, log_file):
+  # True when the test phase already finished for every logged run: the results file has its
+  # closing summary and every run's prediction CSV (plus the shared gt.csv) exists. Re-testing
+  # would only append a duplicate report to the results file.
+  if not os.path.isfile(output_file) or not os.path.isfile(os.path.join(model_path, "gt.csv")):
+    return False
+  with open(output_file) as f:
+    if "Mean / STD over All trials" not in f.read():
+      return False
+  return all(os.path.isfile(os.path.join(model_path, e + ".csv")) for e in _logged_experiments(log_file))
+
+
+def _capture_rng_state():
+  return {
+    "torch": torch.get_rng_state(),
+    "cuda": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None,
+    "numpy": np.random.get_state(),
+    "python": random.getstate(),
+  }
+
+
+def _restore_rng_state(state):
+  if not state:
+    return
+  torch.set_rng_state(state["torch"])
+  if state.get("cuda") is not None and torch.cuda.is_available():
+    torch.cuda.set_rng_state_all(state["cuda"])
+  np.random.set_state(state["numpy"])
+  random.setstate(state["python"])
+
+
 def classification_engine(args, model_path, output_path, diseases, dataset_train, dataset_val, dataset_test, test_diseases=None):
   device = torch.device(args.device)
   cudnn.benchmark = True
@@ -60,6 +99,18 @@ def classification_engine(args, model_path, output_path, diseases, dataset_train
     print("start training....")
     for i in range(args.start_index, args.num_trial):
       print ("run:",str(i+1))
+      experiment = args.exp_name + "_run_" + str(i)
+      save_model_path = os.path.join(model_path, experiment)
+      last_ckpt_path = save_model_path + "_last.pth.tar"
+      # A run listed in models.log has already trained its full epoch budget -- never retrain it.
+      # Before this guard, re-running a notebook with resume=True reloaded a finished run's best
+      # checkpoint and trained again from that epoch; that silently replaced Ark+'s screening
+      # checkpoint on Drive on 2026-08-05. An uninterrupted run never reaches this branch.
+      if experiment in _logged_experiments(log_file):
+        print("{} already finished training (listed in {}) -- skipping, not retraining.".format(experiment, log_file))
+        if os.path.isfile(last_ckpt_path):
+          os.remove(last_ckpt_path)
+        continue
       # Explicit per-trial seeding (protocol: 1 seed for screening, 3 for headline results).
       # args.seed_list gives the actual seed values to report; falls back to the bare trial
       # index if unset, matching the original (implicit, non-reproducible) behavior.
@@ -71,12 +122,10 @@ def classification_engine(args, model_path, output_path, diseases, dataset_train
       print("seed:", _seed)
       start_epoch = 0
       init_loss = 1000000
-      experiment = args.exp_name + "_run_" + str(i)
       best_val_loss = init_loss
       best_val_auc = -1.0  # checkpoint selection criterion when args.test_every_epoch is True (see below) --
                             # higher is better, so -1.0 (below any real AUC) is the correct "nothing saved yet" sentinel
       patience_counter = 0
-      save_model_path = os.path.join(model_path, experiment)
       model = build_classification_model(args)
       print(model)
 
@@ -123,9 +172,41 @@ def classification_engine(args, model_path, output_path, diseases, dataset_train
 
       lr_scheduler, _ = create_scheduler(args, optimizer)
 
+      mean_result_list, result_list = [], []
+      accuracy = []
+      epoch_table = []
+      epoch_table_path = os.path.join(model_path, experiment + "_epoch_table.csv")
+      # fp16 needs gradient scaling to avoid underflow; bf16 doesn't (same exponent range as
+      # fp32). One scaler per trial, reused across epochs so its scale factor can adapt.
+      # Created before the resume block so an exact resume can restore its state.
+      _amp_dtype = resolve_amp_dtype(args)
+      _scaler = torch.cuda.amp.GradScaler() if _amp_dtype == torch.float16 else None
+
       if args.resume:
         resume = os.path.join(model_path, experiment + '.pth.tar')
-        if os.path.isfile(resume):
+        if os.path.isfile(last_ckpt_path):
+          # Exact continuation from the end of the last finished epoch (written every epoch
+          # below): weights, optimizer, scheduler, grad scaler, best-so-far trackers, the
+          # per-epoch metric history and RNG state all come back, so an interrupted run carries
+          # on where it stopped instead of rewinding to its best epoch and dropping epoch-table rows.
+          print("=> exact resume from '{}'".format(last_ckpt_path))
+          # weights_only=False: our own checkpoint (see the PyTorch >=2.6 note below), safe to trust.
+          checkpoint = torch.load(last_ckpt_path, weights_only=False)
+          start_epoch = checkpoint['epoch']
+          model.load_state_dict(checkpoint['state_dict'])
+          optimizer.load_state_dict(checkpoint['optimizer'])
+          lr_scheduler.load_state_dict(checkpoint['scheduler'])
+          if _scaler is not None and checkpoint.get('scaler') is not None:
+            _scaler.load_state_dict(checkpoint['scaler'])
+          best_val_loss = checkpoint['lossMIN']
+          best_val_auc = checkpoint['aucMAX']
+          patience_counter = checkpoint['patience_counter']
+          mean_result_list = checkpoint['mean_result_list']
+          result_list = checkpoint['result_list']
+          epoch_table = checkpoint['epoch_table']
+          _restore_rng_state(checkpoint.get('rng_state'))
+          print("=> resumed at epoch={:04d} (best val_auc so far={:.5f})".format(start_epoch, best_val_auc))
+        elif os.path.isfile(resume):
           print("=> loading checkpoint '{}'".format(resume))
           # weights_only=False: same PyTorch >=2.6 default-change issue as models.py/trainer.py's
           # checkpoint loads -- this is our own saved checkpoint, safe to trust.
@@ -140,17 +221,15 @@ def classification_engine(args, model_path, output_path, diseases, dataset_train
           best_val_auc = checkpoint.get('aucMAX', -1.0)  # .get() for backward-compat with checkpoints saved before AUC-based selection
           print("=> loaded checkpoint '{}' (epoch={:04d}, val_loss={:.5f}, val_auc={:.5f})"
                 .format(resume, start_epoch, init_loss, best_val_auc))
+          # Older checkpoints (no _last file) rewind to the best epoch. Keep the epoch-table rows
+          # up to that epoch rather than overwriting the whole table with post-resume rows only.
+          if os.path.isfile(epoch_table_path):
+            with open(epoch_table_path, newline="") as f:
+              epoch_table = [r for r in csv.DictReader(f) if int(r["Epoch"]) <= start_epoch]
         else:
-          print("=> no checkpoint found at '{}'".format(args.resume))
+          print("=> no checkpoint found at '{}'".format(resume))
 
-      mean_result_list, result_list = [], []
-      accuracy = []
-      epoch_table = []
-      epoch_table_path = os.path.join(model_path, experiment + "_epoch_table.csv")
-      # fp16 needs gradient scaling to avoid underflow; bf16 doesn't (same exponent range as
-      # fp32). One scaler per trial, reused across epochs so its scale factor can adapt.
-      _amp_dtype = resolve_amp_dtype(args)
-      _scaler = torch.cuda.amp.GradScaler() if _amp_dtype == torch.float16 else None
+      epoch = start_epoch - 1  # keeps the models.log line below defined even if no epoch runs
       for epoch in range(start_epoch, args.epochs):
         if args.skip_training:
           break
@@ -258,6 +337,27 @@ def classification_engine(args, model_path, output_path, diseases, dataset_train
             print("Epoch {:04d}: val_loss did not improve from {:.5f} ".format(epoch, best_val_loss))
           patience_counter += 1
 
+        # Resume point for an interrupted run (read by the resume block above). Written to a temp
+        # file then renamed, so a runtime that dies mid-write can't leave a corrupt resume file.
+        # Deleted once the run is logged as finished, so the kept files match Ark+'s: one
+        # best-validation-AUC checkpoint per run.
+        _tmp_last = last_ckpt_path + ".tmp"
+        torch.save({
+          'epoch': epoch + 1,
+          'lossMIN': best_val_loss,
+          'aucMAX': best_val_auc,
+          'patience_counter': patience_counter,
+          'state_dict': model.state_dict(),
+          'optimizer': optimizer.state_dict(),
+          'scheduler': lr_scheduler.state_dict(),
+          'scaler': _scaler.state_dict() if _scaler is not None else None,
+          'mean_result_list': mean_result_list,
+          'result_list': result_list,
+          'epoch_table': epoch_table,
+          'rng_state': _capture_rng_state(),
+        }, _tmp_last)
+        os.replace(_tmp_last, last_ckpt_path)
+
         if patience_counter >= args.patience:
           print("Early Stopping")
           break
@@ -270,6 +370,8 @@ def classification_engine(args, model_path, output_path, diseases, dataset_train
       with open(log_file, 'a') as f:
         f.write("{} ({}epoch)\n".format(experiment,epoch-args.patience))
         f.close()
+      if os.path.isfile(last_ckpt_path):
+        os.remove(last_ckpt_path)  # run finished and logged; the best checkpoint is what's kept
 
       if len(mean_result_list) > 0:
         best_rest = max(mean_result_list)
@@ -286,6 +388,8 @@ def classification_engine(args, model_path, output_path, diseases, dataset_train
   log_file = os.path.join(model_path, "models.log")
   if not os.path.isfile(log_file):
     print("log_file ({}) not exists!".format(log_file))
+  elif _already_tested(output_file, model_path, log_file):
+    print("{} already tested ({} has its final summary) -- not re-testing.".format(args.exp_name, output_file))
   else:
     accuracy = []
     mean_auc, mean_mcc, mean_ap, mean_f1, mean_recall, mean_accuracy, mean_ece = [],[],[],[],[],[],[]
@@ -295,12 +399,21 @@ def classification_engine(args, model_path, output_path, diseases, dataset_train
       print(">> Disease = {}".format(diseases))
       writer.write("Disease = {}\n".format(diseases))
 
+      _tested = set()  # a run listed twice in models.log (old accidental resumes) is tested once
       while experiment:
         experiment = experiment.split()[0]
+        if experiment in _tested:
+          experiment = reader.readline()
+          continue
+        _tested.add(experiment)
         saved_model = os.path.join(model_path, experiment + ".pth.tar")
         pred_csv = os.path.join(model_path, experiment + ".csv")
         gt_csv = os.path.join(model_path, "gt.csv")
-        if os.path.exists(pred_csv) and os.path.exists(gt_csv):
+        # Cached CSVs (written further down) already hold only the test_diseases columns, so
+        # they must not be subset a second time -- doing so was the IndexError behind
+        # SESSION_NOTES bug #11, which hit any re-run that found its own cached predictions.
+        _from_cache = os.path.exists(pred_csv) and os.path.exists(gt_csv)
+        if _from_cache:
           y_test = read_from_csv(gt_csv)
           p_test = read_from_csv(pred_csv)
         else:
@@ -315,11 +428,11 @@ def classification_engine(args, model_path, output_path, diseases, dataset_train
             "{}: ACCURACY = {}\n".format(experiment, np.array2string(np.array(acc), precision=4, separator='\t')))
           accuracy.append(acc)
 
-        
-        if test_diseases is not None:
+
+        if test_diseases is not None and not _from_cache:
           y_test = copy.deepcopy(y_test[:,test_diseases])
           p_test = copy.deepcopy(p_test[:,test_diseases])
-        
+
         mAUC, auc_scores = meanAUC(y_test, p_test)
         mMCC, mcc_scores = meanMCC(y_test, p_test)
         mAP, ap_scores = meanAP(y_test, p_test)

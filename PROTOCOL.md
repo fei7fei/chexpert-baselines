@@ -7,6 +7,19 @@ plan" below for every place they differ and why.
 
 Code: https://github.com/fei7fei/chexpert-baselines
 
+## Golden rule (2026-11-05): the submitted PDFs decide
+
+The submitted abstract and supplemental PDF (`SPIE_Abstract/spie_abstract_text.*`, `SPIE_Abstract/spie_supplemental.*`) **cannot change**. Every experiment follows them: Table 1's protocol, the six models, questions (a)–(c) and the held-out test set. Where this file or `SESSION_NOTES.md` disagrees with the PDFs, the PDFs win.
+
+Decisions taken under this rule on 2026-11-05:
+
+| Decision | Why |
+|---|---|
+| Keep `engine.py`'s `lr_scheduler.step(val_loss)` exactly as is, for all 6 models | timm 0.5.4's `step()` reads its first argument as the *epoch*, so the cosine scheduler never leaves its 1-epoch warmup. The LR is ≈ 1e-6 + 4.9e-5 × (previous epoch's val loss): 1e-6 in epoch 1, then ≈ 2.0–2.5e-5 for Ark+ (reconstructed from its epoch tables). Ark+ already trained this way and can't be retrained, so every baseline does too. The configured values (cosine, warmup 1, lr 5e-5, wd 0.05) are exactly Table 1's. |
+| Keep the `engine.py` / `utils.py` metric code exactly as is | The submitted Table 3's F1, Sensitivity, Accuracy and MCC are `engine.py`'s numbers, whose Youden thresholds are fit on the test labels (e.g. sensitivity 0.7791 and 0.7865 → "0.779–0.787"). Baselines are only comparable with Table 3 if they're computed the same way. Validation-tuned numbers come separately from `AllModels_Gaps_Colab.ipynb` (Figure 1's method). Never mix the two kinds in one column. |
+| Test set = the patient-disjoint held-out 15% only | That is what Table 1 says. No official-CheXpert-test-set evaluation. |
+| RAD-DINO batch size 32 → 64 | The PDF promises one identical recipe for all six models. |
+
 ## Models (6, not 5)
 
 | Model | Architecture | Init | Notes |
@@ -48,22 +61,22 @@ Code: https://github.com/fei7fei/chexpert-baselines
 | Input resolution | 320×320 (native CheXpert-small short side) |
 | Uncertain (-1) labels | U-Zeros (headline); U-Ones is a one-line toggle for the appendix sensitivity check |
 | Epochs | 30, no early stopping (`patience = epochs`) — reduced from 50 on 2026-08-03 for the Aug 5 SPIE abstract deadline; checkpoint selection is AUC-based so this is still a valid run, just less epoch budget to find the best one |
-| Optimizer | AdamW, cosine schedule |
+| Optimizer | AdamW, cosine schedule (stepped with val loss, so the effective LR is ≈2e-5 after epoch 1 for every model; see "Golden rule" above) |
 | Warmup epochs | **1** — ⚠️ open item, see below |
 | LR / weight decay | 5e-5 / 0.05 |
 | Checkpoint selection | **Best validation macro-AUC** across the 30-epoch budget (not val loss, not the epoch-30 endpoint) |
 | Val vs. test | Official 234-study CheXpert valid.csv = validation (threshold tuning / checkpoint selection only). A **held-out test set carved from train by patient ID** (15% of patients) = final reporting, touched exactly once, after training, on the single selected checkpoint |
 | Ablation subset | Fixed, stratified ~20% of train, patient-disjoint from the held-out test set |
 | Seeds | 1 (screening tier) / 2 — seeds 13, 42 (headline tier) — reduced from 3 seeds on 2026-08-03 for the Aug 5 deadline. ⚠️ This overrides the earlier explicit guidance to keep 3 seeds even under time pressure (reviewers expect the 3-seed spread) — a deliberate, acknowledged trade-off, not an oversight |
-| Metrics | Macro-AUC, macro-F1, per-class sensitivity (recall) at Youden's-J-optimal threshold, macro-accuracy, MCC, AP, ECE, epoch-to-best-AUC — ⚠️ as currently computed by `engine.py`, the Youden's-J threshold is fit on the *test* set's own labels then applied to that same set (a leak; see `SESSION_NOTES.md` bug #8), still not fixed at the source. **Gap #1 is now built and is what the PDF actually uses**: `ArkPlus_Gaps_Colab.ipynb` fits temperature calibration + 3 threshold policies (naive 0.5, Youden's J, F1-optimal) on validation only and applies them once to test — that leak-free sensitivity number is Table 3's Sensitivity column and Figure 1. AUC/MCC/AP/ECE are threshold-independent and were never affected |
-| Resume | `args.resume = True` — resumes from the epoch of the **last checkpointed improvement**, not the last epoch actually attempted. Since checkpoints only save on validation-AUC improvement, if training ran past that point without a better epoch, those later epochs were never saved and get silently redone on resume. Not a bug, just a real cost worth knowing about before assuming a resume is "almost done" |
+| Metrics | Macro-AUC, macro-F1, per-class sensitivity (recall) at Youden's-J-optimal threshold, macro-accuracy, MCC, AP, ECE, epoch-to-best-AUC — ⚠️ as currently computed by `engine.py`, the Youden's-J threshold is fit on the *test* set's own labels then applied to that same set (a leak; see `SESSION_NOTES.md` bug #8), **deliberately kept as is (2026-11-05)**, because the submitted Table 3's F1 / Sensitivity / Accuracy / MCC are exactly these test-fit numbers (MCC uses the same test-fit threshold). The leak-free, validation-tuned numbers are **Figure 1 only**: `ArkPlus_Gaps_Colab.ipynb` (Ark+) and `AllModels_Gaps_Colab.ipynb` (all six) fit temperature + 3 threshold policies (naive 0.5, Youden's J, F1-optimal) on validation only and apply them once to test. AUC, AP and ECE are threshold-independent |
+| Resume | `args.resume = True`. **Since 2026-11-05:** a run already listed in `models.log` is never retrained, and a finished experiment is not re-tested. An interrupted run continues exactly from the end of its last finished epoch: `<run>_last.pth.tar` is written every epoch and deleted when the run finishes, so only the best-validation-AUC checkpoint per run is kept, as with Ark+. Verified on CPU with a stubbed model: an uninterrupted run's outputs are byte-identical to the old engine's, and runs interrupted once or twice resume to identical outputs. **Before this**, resume reloaded the *best* checkpoint and retrained from that epoch, which silently replaced Ark+'s screening checkpoint on Drive on 2026-08-05 (the Mac copies in `checkpoints/arkplus/` and `results/arkplus/` are the clean originals) |
 
 ## Per-model settings (deliberately vary)
 
 | Model | Batch size | AMP dtype | Why it differs |
 |---|---|---|---|
-| Ark+, SwinL, SwinB, DenseNet-121, ConvNeXtV2 | 64 | fp16 | fp16 is the protocol default |
-| RadDino | 32 | fp16 | Smaller batch — heaviest per-token attention cost of the 6 (ViT, ~485 tokens at 320px) |
+| Ark+, SwinL, DenseNet-121 | 64 | fp16 | fp16 is the protocol default |
+| RadDino | 64 (32 until 2026-11-05) | fp16 | Raised to 64 to match the other five: the submitted PDF promises one identical recipe. If it ever OOMs, stop and decide; don't silently drop it back to 32 |
 | ConvNeXtV2 | 64 | **fp16** (verified necessary) | bf16 crashes: "no cuDNN engine found" for its depthwise convs |
 | SwinB (Swin V2) | 64 | **bf16** (verified necessary) | fp16 underflows: cosine attention L2-normalizes Q/K, and normalizing near-zero-norm vectors goes non-finite under fp16's narrow range (22/473 grad tensors, reproducibly). bf16 (fp32's exponent range) is clean (0/473). |
 
@@ -115,5 +128,6 @@ blended into one unlabeled number.
 - Code (this repo): `github.com/fei7fei/chexpert-baselines` — pull this on any machine to get the full, current implementation.
 - Shared protocol split cache (patient partition, identical across all 6 models): Google Drive, `chexpert_protocol_v1/` folder.
 - Per-model checkpoints: Google Drive, `<model>_chexpert_checkpoints/` folders, under `_protocol1_<model>_screening` / `_protocol1_<model>_headline` experiment names. Ark+'s also has `_protocol1_arkplus_cw_screening` (the class-weighted follow-up).
+- `AllModels_Gaps_Colab.ipynb` (added 2026-11-05): Figure 1's Gap #1 analysis (same functions, copied verbatim) for every finished run of all six models. It stops unless it re-derives the submitted Figure 1 for Ark+. Writes `chexpert_protocol_v1/gap1/gap1_all_models.csv` on Drive; copy that into `results/gap1/`. `Results_Dashboard_Colab.ipynb` (Michael) displays `*_results.txt`; Ark+'s screening file on Drive has 4 test blocks from the 2026-08-05 accidental resume, so the dashboard shows 4 "runs" there. Use the Mac copy in `results/arkplus/` instead.
 - Notebooks: `Colab_Training_Notebooks/*_Colab_Baseline.ipynb` (one per model), `ArkPlus_Gaps_Colab.ipynb` (baseline + Gap #1 calibration/threshold analysis), `ArkPlus_AbstractImprovementTest_Colab.ipynb` (baseline, byte-identical through its training cell, + the class-weighted BCE follow-up — kept as a separate notebook specifically so the plain baseline stays untouched and runnable on its own).
 - The actual deliverable: `SPIE_Abstract/spie_supplemental.tex` (+ compiled `spie_supplemental.pdf`), 4 pages, SPIE Letter-size margins verified. `SESSION_NOTES.md` has its current content/status and what's still a placeholder.
