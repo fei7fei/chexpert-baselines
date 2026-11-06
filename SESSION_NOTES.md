@@ -27,6 +27,11 @@ kept separate so it doesn't get buried in narrative.
 - **Paper outputs.** `code/analysis/paper_outputs.py`, run by each notebook's last cell, writes per-seed and per-class metrics, the Table 3-format min–max summary, training-length numbers (best-AUC epoch, lowest-val-loss epoch) and loss/AUC-per-epoch figures (PDF + PNG). Run it on the Mac over `results/` for cross-model figures (all six models; Ark+ vs Swin-L). Colours: the dataviz reference palette, validated.
 - **Table 3 has two upper bounds that don't match the results file.** MCC 0.363–**0.375** (file: 0.3743 / 0.3633 → 0.363–0.374) and ECE 0.011–**0.015** (file: 0.0109 / 0.0141 → 0.011–0.014). The other five ranges match exactly. The PDF can't change; the manuscript should use the file-traceable values (`paper_outputs.py` prints them).
 - **Ark+ training length (headline, from its epoch tables):** best validation AUC at epoch 13 (seed 13) and epoch 5 (seed 42); lowest validation loss at epochs 13 and 21.
+- **DenseNet-121 finished all three runs (6 Nov, 01:34–06:00 MST, G4, ~4.5 h).** That covers screening (seed 13) and headline (seeds 13, 42). Then the runner itself crashed: DenseNet's cells set `_now = datetime.datetime.now(...)` in the shared namespace, which replaced the runner's `_now()` helper, so the queue stopped before Swin-L.
+  - **Fix:** the runner's state now lives inside `run_queue()`, and the cwd is reset before each model. Tested in IPython with fake notebooks that clobber `_now`, `status`, `name` and the cwd and that raise errors. The old runner failed that test; the new one passes.
+  - DenseNet-121 left the queue, so it is now Swin-L → Swin V2-B → ConvNeXt V2-B → RAD-DINO.
+  - The training code and tag are unchanged; only the runner cell changed.
+  - The full DenseNet run log is in `results/densenet121/logs/`.
 
 ## 2026-11-05: read this first
 
