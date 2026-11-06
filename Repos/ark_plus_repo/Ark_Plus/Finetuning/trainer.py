@@ -18,7 +18,7 @@ def resolve_amp_dtype(args):
   return {"bf16": torch.bfloat16, "fp16": torch.float16}[name]
 
 
-def train_one_epoch(data_loader_train, device, model, criterion, optimizer, epoch, amp_dtype=torch.bfloat16, scaler=None):
+def train_one_epoch(data_loader_train, device, model, criterion, optimizer, epoch, amp_dtype=torch.bfloat16, scaler=None, accum_steps=1):
   batch_time = MetricLogger('Time', ':6.3f')
   losses = MetricLogger('Loss', ':.4e')
   progress = ProgressLogger(
@@ -27,6 +27,15 @@ def train_one_epoch(data_loader_train, device, model, criterion, optimizer, epoc
     prefix="Epoch: [{}]".format(epoch))
 
   model.train()
+
+  # Gradient accumulation (accum_steps > 1) keeps the protocol's batch of 64 on a GPU that can't hold
+  # 64 images at once: e.g. two micro-batches of 32 make one optimizer step over the same 64 images
+  # (the shuffled order doesn't depend on batch size). Each micro-batch's mean loss is weighted by its
+  # share of the group's samples, so the gradient equals the 64-image batch's -- also for the smaller
+  # last group of an epoch. Exact for LayerNorm models; NOT for BatchNorm ones (DenseNet-121), whose
+  # batch statistics would come from 32 images. accum_steps=1 is the original code path, unchanged.
+  _n_total = len(data_loader_train.dataset)
+  _group_size = data_loader_train.batch_size * accum_steps
 
   end = time.time()
   for i, (samples, targets) in enumerate(data_loader_train):
@@ -40,14 +49,30 @@ def train_one_epoch(data_loader_train, device, model, criterion, optimizer, epoc
       #outputs = torch.sigmoid(outputs)
       loss = criterion(outputs, targets)
 
-    optimizer.zero_grad()
-    if scaler is not None:
-      scaler.scale(loss).backward()
-      scaler.step(optimizer)
-      scaler.update()
+    if accum_steps == 1:
+      optimizer.zero_grad()
+      if scaler is not None:
+        scaler.scale(loss).backward()
+        scaler.step(optimizer)
+        scaler.update()
+      else:
+        loss.backward()
+        optimizer.step()
     else:
-      loss.backward()
-      optimizer.step()
+      _n_group = min(_group_size, _n_total - (i // accum_steps) * _group_size)
+      _weighted = loss * (samples.size(0) / _n_group)
+      if i % accum_steps == 0:
+        optimizer.zero_grad()
+      if scaler is not None:
+        scaler.scale(_weighted).backward()
+      else:
+        _weighted.backward()
+      if (i + 1) % accum_steps == 0 or (i + 1) == len(data_loader_train):
+        if scaler is not None:
+          scaler.step(optimizer)
+          scaler.update()
+        else:
+          optimizer.step()
 
     losses.update(loss.item(), samples.size(0))
     batch_time.update(time.time() - end)

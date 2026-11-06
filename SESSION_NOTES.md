@@ -6,6 +6,17 @@ Claude Code session anywhere), read this first; it has the context a plain
 `git log` won't give you. The technical protocol itself is in `PROTOCOL.md`,
 kept separate so it doesn't get buried in narrative.
 
+## 2026-11-06: how the baseline runs work now
+
+- **Where they run.** From VS Code, using the Google Colab extension (`google.colab`, already installed on Ian's Mac): open a `*_Colab_Baseline.ipynb`, pick the Colab kernel with an A100, then Run All. Runs use the **signed-in account's** Drive.
+- **Code: GitHub tag `protocol1-baselines-v1`, md5-checked.** No more robocopy to Drive for the baselines (the "Code flow" section below still applies to Ark+'s own notebooks). Changing training code now means: commit, create a new tag, and update `CODE_TAG` + `EXPECTED_CODE_MD5` in the 5 baseline notebooks and `AllModels_Gaps_Colab.ipynb`. Fingerprint at this tag: `engine.py c5b6e179169c35481be1d6e54c9179af`, `trainer.py 3b368affdd29b1b03475f82474ebfa6a`, `models.py e0ced0f809680aaebfc97ec3fd6d0e14`, `dataloader.py 6aba3a804bb10625a49c9027734a7b76`, `utils.py a7c17deb55d24e826c74b46ad848c441`.
+- **Dataset = Ark+'s, enforced.** Fingerprints over every image path + all 14 labels, in order: train pool `fd210ea10a3f5c364de5d167b57144f3`, held-out test `03d149b5a3504245e7e9a2f42a1c2e9f`, screening subset `87c42c824823e16386ee0cbc026202db`, valid `bca0b7e132dfc73e7aab492cf40cc084`. They were computed from CheXpert-small with the protocol's split code, which reproduces Ark+'s held-out `gt.csv` row for row. A mismatch stops the notebook; tested both ways locally.
+- **A100 (40 GB) vs Ark+'s 96 GB card.** The effective batch stays 64 via gradient accumulation (`args.grad_accum_steps`, opt-in; see `PROTOCOL.md`). Swin-L switches to 2 × 32 automatically on GPUs under 80 GB. The others use 64; if one runs out of memory, set its `MICRO_BATCH = 32`. DenseNet-121 must stay at real 64 (BatchNorm). Memory use on the A100 is an estimate until the first runs; nothing was measured on GPU here.
+- **Drive must be mounted.** The config cell stops otherwise, so checkpoints can't silently land on the runtime's disk.
+- **Paper outputs.** `code/analysis/paper_outputs.py`, run by each notebook's last cell, writes per-seed and per-class metrics, the Table 3-format min–max summary, training-length numbers (best-AUC epoch, lowest-val-loss epoch) and loss/AUC-per-epoch figures (PDF + PNG). Run it on the Mac over `results/` for cross-model figures (all six models; Ark+ vs Swin-L). Colours: the dataviz reference palette, validated.
+- **Table 3 has two upper bounds that don't match the results file.** MCC 0.363–**0.375** (file: 0.3743 / 0.3633 → 0.363–0.374) and ECE 0.011–**0.015** (file: 0.0109 / 0.0141 → 0.011–0.014). The other five ranges match exactly. The PDF can't change; the manuscript should use the file-traceable values (`paper_outputs.py` prints them).
+- **Ark+ training length (headline, from its epoch tables):** best validation AUC at epoch 13 (seed 13) and epoch 5 (seed 42); lowest validation loss at epochs 13 and 21.
+
 ## 2026-11-05: read this first
 
 **Golden rule:** the submitted abstract and supplemental PDF cannot change, and everything follows them. See `PROTOCOL.md` → "Golden rule" for the decisions taken under it. In short: the LR-scheduler behaviour and `engine.py`'s metric code stay exactly as Ark+ ran; the test set is the held-out 15% only; RAD-DINO's batch size is now 64.
@@ -31,8 +42,7 @@ What was found and changed in this session:
    The config cells now differ from Ark+'s only in model identity, plus Swin V2-B's bf16.
 7. **`AllModels_Gaps_Colab.ipynb`** runs Figure 1's analysis for all six models and refuses to continue unless it re-derives Figure 1 for Ark+. Checked locally with the clean Ark+ seed-13 checkpoint: 0.5 → 0.8603 / 0.3194; Youden → 0.6634 / 0.8351; F1-optimal → 0.7180 / 0.7275 (accuracy / sensitivity; Figure 1: 0.86/0.32, 0.66/0.84, 0.72/0.73); T = 1.634 (PDF: "≈1.6").
 
-Training-code fingerprint after this session (md5, as committed; each run's `env_*.json` should show the same if Drive was resynced):
-`engine.py 2ed0079a8382cd544d431d35b333b20a`, `trainer.py 81a7b663861c20ee0b0157e51b1cddf1`, `models.py e0ced0f809680aaebfc97ec3fd6d0e14`, `dataloader.py 6aba3a804bb10625a49c9027734a7b76`, `utils.py a7c17deb55d24e826c74b46ad848c441`.
+(The training-code fingerprint listed here before was superseded on 2026-11-06; see below.)
 
 Ark+ wall-clock times, from Drive file timestamps: screening ≈1.3 h, each headline seed ≈6.5–7 h.
 
