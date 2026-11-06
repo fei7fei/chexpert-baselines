@@ -8,7 +8,15 @@ kept separate so it doesn't get buried in narrative.
 
 ## 2026-11-06: how the baseline runs work now
 
-- **Where they run.** From VS Code, using the Google Colab extension (`google.colab`, already installed on Ian's Mac): open a `*_Colab_Baseline.ipynb`, pick the Colab kernel with an A100, then Run All. Runs use the **signed-in account's** Drive.
+- **Where they run.** From VS Code, using the Google Colab extension (`google.colab` 0.9.7, already installed on Ian's Mac). Steps (checked against the extension's own code):
+  1. Open a `*_Colab_Baseline.ipynb` and click **Select Kernel** (top right).
+  2. **Colab** → **New Colab Server**. Not "Auto Connect", which reuses the last server and may be CPU-only.
+  3. **Select a variant: GPU** → **Select an accelerator: A100** (the list shows only what the Colab plan allows).
+  4. If asked: machine shape **High-RAM**, runtime version = the default.
+  5. Name the server, e.g. `densenet121`. Then **Run All**.
+
+  Runs use the **signed-in account's** Drive. `drive.mount` works in VS Code; the extension's own "Mount Google Drive to Server" command inserts the same snippet.
+- **Getting results onto the Mac:** `python code/analysis/collect_results.py` (dry run), then add `--copy`. It fills `results/<model_key>/` and `checkpoints/<model_key>/` (same layout as Ark+) from Google Drive for desktop, or from a folder downloaded from drive.google.com (`--source`). It never deletes, never touches Ark+, skips checkpoints of runs still training, and won't overwrite a checkpoint that differs. Tested on a fake Drive tree.
 - **Code: GitHub tag `protocol1-baselines-v1`, md5-checked.** No more robocopy to Drive for the baselines (the "Code flow" section below still applies to Ark+'s own notebooks). Changing training code now means: commit, create a new tag, and update `CODE_TAG` + `EXPECTED_CODE_MD5` in the 5 baseline notebooks and `AllModels_Gaps_Colab.ipynb`. Fingerprint at this tag: `engine.py c5b6e179169c35481be1d6e54c9179af`, `trainer.py 3b368affdd29b1b03475f82474ebfa6a`, `models.py e0ced0f809680aaebfc97ec3fd6d0e14`, `dataloader.py 6aba3a804bb10625a49c9027734a7b76`, `utils.py a7c17deb55d24e826c74b46ad848c441`.
 - **Dataset = Ark+'s, enforced.** Fingerprints over every image path + all 14 labels, in order: train pool `fd210ea10a3f5c364de5d167b57144f3`, held-out test `03d149b5a3504245e7e9a2f42a1c2e9f`, screening subset `87c42c824823e16386ee0cbc026202db`, valid `bca0b7e132dfc73e7aab492cf40cc084`. They were computed from CheXpert-small with the protocol's split code, which reproduces Ark+'s held-out `gt.csv` row for row. A mismatch stops the notebook; tested both ways locally.
 - **A100 (40 GB) vs Ark+'s 96 GB card.** The effective batch stays 64 via gradient accumulation (`args.grad_accum_steps`, opt-in; see `PROTOCOL.md`). Swin-L switches to 2 × 32 automatically on GPUs under 80 GB. The others use 64; if one runs out of memory, set its `MICRO_BATCH = 32`. DenseNet-121 must stay at real 64 (BatchNorm). Memory use on the A100 is an estimate until the first runs; nothing was measured on GPU here.
