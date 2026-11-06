@@ -31,6 +31,7 @@ import matplotlib
 if "ipykernel" not in sys.modules:  # script use: file-only backend; in a notebook keep its inline backend
     matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import matplotlib.ticker
 import pandas as pd
 
 # ---- fixed vocabulary -----------------------------------------------------------------------
@@ -321,6 +322,201 @@ def plot_small_multiples(exps_by_key, path_no_ext, kind):
     return _save(fig, path_no_ext)
 
 
+def _dot_axes(ax):
+    ax.spines[["top", "right", "left"]].set_visible(False)
+    ax.spines["bottom"].set_linewidth(0.8)
+    ax.grid(axis="x", color=GRID, linewidth=0.6, linestyle="-")
+    ax.set_axisbelow(True)
+    ax.tick_params(axis="y", length=0)
+    ax.tick_params(axis="x", length=3, width=0.8)
+
+
+def _seed_marker(ax, x, y, color, seed):
+    # seed 13 filled, seed 42 open: the second encoding beside colour, so seeds are told apart without it
+    ax.plot([x], [y], "o", markersize=7, color=color, markeredgecolor=color, markeredgewidth=1.6,
+            markerfacecolor=color if seed == 13 else SURFACE, zorder=4)
+
+
+def _seed_legend(fig, tier):
+    h = [plt.Line2D([], [], ls="", marker="o", markersize=7, color=INK2, markerfacecolor=INK2, label="Seed 13")]
+    if tier == "headline":
+        h.append(plt.Line2D([], [], ls="", marker="o", markersize=7, color=INK2, markerfacecolor=SURFACE,
+                            markeredgewidth=1.6, label="Seed 42"))
+        h.append(plt.Line2D([], [], color=INK2, lw=LINE_W, alpha=0.5, label="Range over seeds"))
+    _legend_below(fig, h)
+
+
+def plot_best_epochs(exps, tier, path_no_ext):
+    """Question (a): at which epoch does each model peak? Best validation AUC (the checkpoint kept) and
+    lowest validation loss, one marker per seed."""
+    keys = [k for k in MODELS if k in exps and any(r["table"] is not None for r in exps[k]["runs"])]
+    if not keys:
+        return []
+    fig, axes = plt.subplots(1, 2, figsize=(7.2, 0.42 * len(keys) + 1.6), sharey=True)
+    for ax, (field, title) in zip(axes, [("best_val_auc_epoch", "Best validation AUC (checkpoint kept)"),
+                                         ("min_val_loss_epoch", "Lowest validation loss")]):
+        for y, k in enumerate(keys):
+            color = MODELS[k][1]
+            vals = [(r["seed"], training_length(r["table"])[field]) for r in exps[k]["runs"] if r["table"] is not None]
+            xs = [v for _, v in vals]
+            if len(xs) > 1:
+                ax.plot([min(xs), max(xs)], [y, y], color=color, lw=LINE_W, alpha=0.5, zorder=3)
+            for seed, x in vals:
+                _seed_marker(ax, x, y, color, seed)
+        _dot_axes(ax)
+        ax.set_title(title)
+        ax.set_xlim(0, 31)
+        ax.set_xticks([1, 5, 10, 15, 20, 25, 30])
+        ax.set_xlabel("Epoch (of 30)")
+    axes[0].set_yticks(range(len(keys)))
+    axes[0].set_yticklabels([MODELS[k][0] for k in keys])
+    axes[0].set_ylim(len(keys) - 0.5, -0.5)
+    _seed_legend(fig, tier)
+    fig.suptitle(f"When each model peaks, {tier} tier", x=0.0, ha="left", fontsize=10)
+    fig.tight_layout(rect=(0, 0.07, 1, 0.97))
+    return _save(fig, path_no_ext)
+
+
+def plot_metric_ranges(exps, tier, path_no_ext):
+    """All seven metrics of the submitted Table 1, per model: min–max over seeds with one marker per seed.
+    Overlapping ranges are visible as such -- no ranking is implied."""
+    keys = [k for k in MODELS if k in exps and any(r["result"] for r in exps[k]["runs"])]
+    if not keys:
+        return []
+    layout = [("AUC", "AUC"), ("AP", "AP"), ("ECE", "ECE (lower is better)"), (None, None),
+              ("F1", "F1*"), ("Sensitivity", "Sensitivity*"), ("Accuracy", "Accuracy*"), ("MCC", "MCC*")]
+    fig, axes = plt.subplots(2, 4, figsize=(9.6, 2 * (0.36 * len(keys) + 1.0) + 0.9), sharey=True)
+    for ax, (metric, title) in zip(axes.ravel(), layout):
+        if metric is None:
+            ax.axis("off")
+            ax.text(0.0, 0.5, "* Threshold: Youden's J fit on the\ntest labels (engine.py), as in the\n"
+                    "submitted Table 3. Validation-tuned\noperating points are reported\nseparately (Gap #1).",
+                    transform=ax.transAxes, fontsize=7.5, color=INK2, va="center")
+            continue
+        for y, k in enumerate(keys):
+            color = MODELS[k][1]
+            vals = [(r["seed"], float(r["result"]["macro"][metric])) for r in exps[k]["runs"] if r["result"]]
+            xs = [v for _, v in vals]
+            if len(xs) > 1:
+                ax.plot([min(xs), max(xs)], [y, y], color=color, lw=LINE_W, alpha=0.5, zorder=3)
+            for seed, x in vals:
+                _seed_marker(ax, x, y, color, seed)
+        _dot_axes(ax)
+        ax.set_title(title)
+        lo, hi = ax.get_xlim()
+        pad = max(0.01, 0.08 * (hi - lo))
+        ax.set_xlim(lo - pad, hi + pad)
+        ax.xaxis.set_major_locator(matplotlib.ticker.MaxNLocator(3))
+    axes[0, 0].set_yticks(range(len(keys)))
+    axes[0, 0].set_yticklabels([MODELS[k][0] for k in keys])
+    axes[0, 0].set_ylim(len(keys) - 0.5, -0.5)
+    _seed_legend(fig, tier)
+    fig.suptitle(f"Held-out test metrics (macro over the 5 competition classes), {tier} tier", x=0.0, ha="left", fontsize=10)
+    fig.tight_layout(rect=(0, 0.06, 1, 0.96))
+    return _save(fig, path_no_ext)
+
+
+# ---- tables for the paper (Markdown + LaTeX) ---------------------------------------------------
+def _md_table(headers, rows):
+    out = ["| " + " | ".join(headers) + " |", "|" + "|".join("---" for _ in headers) + "|"]
+    return "\n".join(out + ["| " + " | ".join(str(c) for c in r) + " |" for r in rows])
+
+
+def _tex_table(headers, rows, caption, label):
+    esc = lambda s: str(s).replace("–", "--").replace("_", r"\_").replace("%", r"\%").replace("#", r"\#")
+    lines = [r"% generated by code/analysis/paper_outputs.py from engine.py's results files -- do not edit by hand",
+             r"\begin{table}[ht]", r"\centering", rf"\caption{{{esc(caption)}}}", rf"\label{{{label}}}",
+             r"\begin{tabular}{l" + "c" * (len(headers) - 1) + "}", r"\toprule",
+             " & ".join(esc(h) for h in headers) + r" \\", r"\midrule"]
+    lines += [" & ".join(esc(c) for c in r) + r" \\" for r in rows]
+    return "\n".join(lines + [r"\bottomrule", r"\end{tabular}", r"\end{table}", ""])
+
+
+def write_paper_tables(exps, tier, out_dir):
+    """Table 3 format for every model (all seven metrics of the submitted Table 1), per-class tables, and
+    training-length numbers, as .md (to read) and .tex (to paste into the manuscript)."""
+    ordered = [exps[k] for k in MODELS if k in exps]
+    written = []
+    seeds = ", ".join(str(s) for s in SEEDS[tier])
+    rows = [s for s in (summary_row(e) for e in ordered) if s]
+    if rows:
+        headers = ["Model"] + METRICS
+        body = [[r["model"] + ("" if r["complete"] else " (incomplete)")] + [r[m] for m in METRICS] for r in rows]
+        caption = (f"Held-out test performance, {tier} tier ({'min--max over seeds ' + seeds if tier == 'headline' else 'seed ' + seeds}). "
+                   "F1, Sensitivity, Accuracy and MCC use engine.py's Youden threshold fit on the test labels, as in the "
+                   "submitted Table 3; validation-tuned operating points are reported separately.")
+        with open(os.path.join(out_dir, f"table_metrics_{tier}.md"), "w") as f:
+            f.write(f"# Held-out test metrics, {tier} tier\n\n{caption.replace('--', '–')}\n\n{_md_table(headers, body)}\n")
+        with open(os.path.join(out_dir, f"table_metrics_{tier}.tex"), "w") as f:
+            f.write(_tex_table(headers, body, caption, f"tab:metrics_{tier}"))
+        written += [f"table_metrics_{tier}.md", f"table_metrics_{tier}.tex"]
+        sections = [f"# Per-class held-out test metrics, {tier} tier\n\n{'Min–max over seeds ' + seeds if tier == 'headline' else 'Seed ' + seeds}. {THRESHOLD_NOTE}."]
+        for metric in METRICS:
+            prow = []
+            for e in ordered:
+                tested = [r for r in e["runs"] if r["result"] and r["result"]["per_class"].get(metric)]
+                if tested:
+                    prow.append([MODELS[e["model_key"]][0]] + [value_range([f"{r['result']['per_class'][metric][j]:.4f}" for r in tested])
+                                                               for j in range(len(CLASSES))])
+            if prow:
+                sections.append(f"## {metric}\n\n" + _md_table(["Model"] + CLASSES, prow))
+        with open(os.path.join(out_dir, f"table_per_class_{tier}.md"), "w") as f:
+            f.write("\n\n".join(sections) + "\n")
+        written.append(f"table_per_class_{tier}.md")
+    tl_rows = []
+    for e in ordered:
+        for r in e["runs"]:
+            if r["table"] is not None:
+                t = training_length(r["table"])
+                tl_rows.append([MODELS[e["model_key"]][0], r["seed"], t["epochs_logged"], t["best_val_auc_epoch"],
+                                f"{t['best_val_auc']:.4f}", t["min_val_loss_epoch"], f"{t['min_val_loss']:.4f}",
+                                f"{t['final_train_loss']:.4f}", f"{t['final_val_loss']:.4f}"])
+    if tl_rows:
+        h = ["Model", "Seed", "Epochs", "Best-AUC epoch", "Best val AUC", "Lowest val-loss epoch", "Lowest val loss",
+             "Final train loss", "Final val loss"]
+        cap = (f"Training length, {tier} tier: the epoch whose validation macro-AUC was best (the checkpoint kept and "
+               "tested) and the epoch of lowest validation loss, out of 30.")
+        with open(os.path.join(out_dir, f"table_training_length_{tier}.md"), "w") as f:
+            f.write(f"# Training length, {tier} tier\n\n{cap}\n\n{_md_table(h, tl_rows)}\n")
+        with open(os.path.join(out_dir, f"table_training_length_{tier}.tex"), "w") as f:
+            f.write(_tex_table(h, tl_rows, cap, f"tab:training_length_{tier}"))
+        written += [f"table_training_length_{tier}.md", f"table_training_length_{tier}.tex"]
+    return written
+
+
+def write_index(out_dir, exps):
+    have = {tier: [MODELS[k][0] for k in MODELS if k in exps[tier]] for tier in SEEDS}
+    lines = [
+        "# Paper tables and figures",
+        "",
+        "Generated by `code/analysis/paper_outputs.py` from `results/<model>/` (engine.py's own results files and epoch "
+        "tables only; nothing is recomputed). Re-run after copying in new results:",
+        "`python code/analysis/paper_outputs.py --results results --out results/paper`.",
+        "",
+        f"Models included: headline -- {', '.join(have['headline']) or 'none'}; screening -- {', '.join(have['screening']) or 'none'}.",
+        "",
+        f"**Threshold note:** {THRESHOLD_NOTE}. Validation-tuned thresholds and calibration (Figure 1's method) come from "
+        "`AllModels_Gaps_Colab.ipynb` and go in `results/gap1/`.",
+        "",
+        "| File | What it shows | Paper question |",
+        "|---|---|---|",
+        "| `table_metrics_<tier>.md/.tex` | All seven Table 1 metrics per model (AUC, F1, Sensitivity, Accuracy, MCC, AP, ECE), min–max over seeds | all |",
+        "| `table_per_class_<tier>.md` | The same metrics for each of the 5 competition classes | all |",
+        "| `table_training_length_<tier>.md/.tex` | Best-AUC epoch, lowest-val-loss epoch, final losses per seed | (a) training length |",
+        "| `metric_ranges_<tier>.pdf/.png` | The seven metrics as min–max ranges with one marker per seed | all |",
+        "| `best_epochs_<tier>.pdf/.png` | Epoch of best validation AUC and of lowest validation loss per model | (a) |",
+        "| `arkplus_vs_swinl_headline.pdf/.png` | Train loss, validation loss and validation AUC per epoch, Ark+ vs Swin-L | (a) pretraining vs control |",
+        "| `all_models_val_auc_headline.pdf/.png` | Validation AUC per epoch, one panel per model | (a) |",
+        "| `all_models_loss_headline.pdf/.png` | Train and validation loss per epoch, one panel per model | (a) overfitting |",
+        "| `curves/<experiment>_curves.pdf/.png` | Per model and tier: train vs validation loss, validation AUC, best epoch marked | (a) |",
+        "| `metrics_per_seed_<tier>.csv`, `metrics_per_class_<tier>.csv`, `table3_format_<tier>.csv` | The numbers behind the tables, machine-readable | all |",
+        "",
+    ]
+    with open(os.path.join(out_dir, "README.md"), "w") as f:
+        f.write("\n".join(lines))
+    return ["README.md"]
+
+
 # ---- entry points ------------------------------------------------------------------------------
 def save_experiment_outputs(model_key, tier, model_path, output_path, out_dir):
     """Colab, after training: tables + curves for one experiment, written to out_dir."""
@@ -376,6 +572,9 @@ def build_paper_outputs(results_root, out_dir):
         written += [f"metrics_per_seed_{tier}.csv", f"metrics_per_class_{tier}.csv"]
         for e in ordered:
             written += [os.path.basename(p) for p in plot_experiment_curves(e, os.path.join(out_dir, "curves", e["exp"] + "_curves"))]
+        written += write_paper_tables(exps[tier], tier, out_dir)
+        written += [os.path.basename(p) for p in plot_best_epochs(exps[tier], tier, os.path.join(out_dir, f"best_epochs_{tier}"))]
+        written += [os.path.basename(p) for p in plot_metric_ranges(exps[tier], tier, os.path.join(out_dir, f"metric_ranges_{tier}"))]
     pair = [exps["headline"][k] for k in ("arkplus", "swinl") if k in exps["headline"]]
     missing = "" if len(pair) == 2 else "  (Swin-L not run yet)"
     written += [os.path.basename(p) for p in plot_pair(pair, os.path.join(out_dir, "arkplus_vs_swinl_headline"),
@@ -383,6 +582,7 @@ def build_paper_outputs(results_root, out_dir):
     if exps["headline"]:
         written += [os.path.basename(p) for p in plot_small_multiples(exps["headline"], os.path.join(out_dir, "all_models_val_auc_headline"), "auc")]
         written += [os.path.basename(p) for p in plot_small_multiples(exps["headline"], os.path.join(out_dir, "all_models_loss_headline"), "loss")]
+    written += write_index(out_dir, exps)
     print(f"Wrote to {out_dir}:\n  " + "\n  ".join(written))
     return exps
 
