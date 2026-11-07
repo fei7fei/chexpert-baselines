@@ -73,6 +73,17 @@ kept separate so it doesn't get buried in narrative.
   - It builds `microsoft/swinv2-base-patch4-window12-192-22k` through transformers. The load report lists only the hub classifier head as unexpected.
   - The "Swin-B (224, window7) built OK" line comes from the notebook's timm install check, not the trained model.
   - Speed: ~0.47 s/step, versus 0.27 for Swin-L.
+  - Screening epochs take 4 min 45 s (597 steps, plus validation and two 1.04 GB checkpoint writes).
+- **Session 5 ended at ~09:05–09:10 MST, after a second proxy 404.**
+  - At 08:40:06 VS Code lost the server, exactly as in session 4: `/api/kernels` returned 404, the cell showed "Failed to connect to the remote Jupyter Server", and the Mac was awake on AC.
+  - Training continued on the server for ~27 min, and Drive kept receiving epoch rows and `_last` checkpoints. Colab then dropped the assignment between the 09:05 and 09:10 polls. Server age at the end: ~5 h 50 min.
+  - Pattern so far: once VS Code loses the kernel connection, Colab ends the server 10–30 min later. Cause still unknown.
+  - **Drive at the end:**
+    - Swin V2-B screening has 18 of 30 epochs. `_last` (index 17) finished uploading at 09:07:34.
+    - The best checkpoint is index 11 (val AUC 0.8701), saved 08:39:21. No later epoch beat it.
+    - A resume starts at index 18; at most part of one epoch is lost.
+  - **Reading Drive timestamps:** the notebook file on the Mac lags the server by up to an epoch. Map epoch-table rows by file size (e.g. 667 B = 12 rows), not by the last line visible in VS Code.
+  - Log saved to `results/swinv2b/logs/` (session 5). Balance after: 342.8 units, 0/h.
 
 ## 2026-11-05: read this first
 
