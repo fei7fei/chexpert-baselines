@@ -32,6 +32,47 @@ kept separate so it doesn't get buried in narrative.
   - DenseNet-121 left the queue, so it is now Swin-L → Swin V2-B → ConvNeXt V2-B → RAD-DINO.
   - The training code and tag are unchanged; only the runner cell changed.
   - The full DenseNet run log is in `results/densenet121/logs/`.
+- **Swin-L started 6 Nov, 08:33 MST** (re-run runner cell, G4). Screening: 597 steps/epoch at 0.272 s/step, about 3 min/epoch; val AUC 0.671 → 0.712 → 0.730 over epochs 1–3.
+- **Pre-flight of the three `transformers` models under transformers 5.13.1** (the Colab runtime's version; Ark+ never used transformers). Run on the Mac in an isolated venv: torch 2.11.0, timm 0.5.4, numpy 2. Each model was built through the tagged `models.py`:
+  - Swin V2-B, ConvNeXt V2-B, RAD-DINO: every encoder tensor equals the downloaded Hub checkpoint (471, 378 and 223 tensors), so no weight is silently re-initialised. Only the Hub classifier head is unused (Swin V2-B, ConvNeXt V2-B).
+  - All parameters load as float32. transformers 5 loads in the checkpoint's stored dtype, and all three checkpoints are stored in fp32.
+  - A 320 px forward and backward pass gives [B, 14] logits and finite gradients, in fp32 and in each model's autocast dtype (CPU).
+  - RAD-DINO's `mask_token` gets no gradient. It is used only in masked-image pretraining and AdamW skips it. This is expected.
+  - Not tested: CUDA numerics, speed and memory. Those come with the real runs.
+- **The G4 server disappeared at 09:16 MST (6 Nov), 8 h 20 min after it was created at 00:56.** The VS Code Colab log shows no "Remove Server" command: the assignment count just went from 1 to 0 between 09:14 and 09:16. Drive unmounted under the running kernel, and Swin-L screening crashed writing epoch 15's table (`FileNotFoundError`).
+  - **Drive state is consistent:** the epoch table has 14 rows (row 14 matches the log), `_last.pth.tar` (2.34 GB) finished uploading at 09:15:59, and the best checkpoint is epoch 13 (val AUC 0.7981). A resume restarts at epoch 15, so only that one epoch (~3 min) is lost.
+  - Session-1 log saved to `results/swinl/logs/`. Balance after: 516.4 units, 0/h.
+  - To resume: new G4 server (runtime 2026.07) → **Run All** (a fresh server has nothing installed, so re-running only the last cell won't work).
+- **Session 2 (G4 assigned 13:37 MST, ended ~21:37 MST, 7 h 59 min):** resumed Swin-L screening exactly at epoch 15 and finished it, including its test. Headline seed 13 finished all 30 epochs (13.4 min/epoch). Seed 42 had finished epoch 1 when the server ended. Its epoch-1 checkpoints were still uploading and never reached Drive (only its 1-row epoch table did), so seed 42 restarts from scratch with the same seed. Second ~8 h end in a row, so CLAUDE.md now records the ~8 h limit. Log saved to `results/swinl/logs/`. Balance after: 437.7 units.
+- **Session 3 (G4 "g4" assigned 23:16 MST; runner started 23:24).**
+  - Getting there: an A100 was picked first by mistake and removed, and the Drive sign-in failed because "Continue" was clicked before the browser step finished. The Drive cell now retries (commit 8b8b781, pushed). VS Code kept a disposed kernel controller ("notebook controller is DISPOSED"); a window reload fixed it.
+  - The runner skipped Swin-L screening (trained and tested) and headline seed 13 (in `models.log`). Seed 42 started from scratch, since no checkpoint of it had reached Drive.
+  - **Seed 42's data stream differs from the session-2 attempt.** First-step loss was 0.7231 now vs 0.7312 then. The model initialisation is identical, because `engine.py` seeds right before building the model.
+    - Why: the train DataLoader is created once per experiment with `persistent_workers=True`. Its shuffle order and its workers' augmentation RNG therefore depend on whether an earlier run (seed 13) used the loader in the same process.
+    - Ark+ and DenseNet ran seed 42 right after seed 13 in one process; Swin-L's seed 42 runs in a fresh one. The same applies to any resumed run (e.g. Swin-L screening from epoch 15): workers respawn, so the augmentation stream after the resume differs from an uninterrupted run.
+    - Nothing in the protocol (seeds 13/42, recipe, data) changes. These runs just aren't bit-reproducible. State it in the manuscript's reproducibility note if needed.
+  - **Ended at ~01:15 MST (7 Nov): the laptop lid was closed at 00:59** (clamshell sleep), so VS Code disconnected and Colab ended the server about 15 min later. The ~15 min comes from the balance: 428.1 at 00:05 → 416.4 at 01:27 = ~70 min of G4.
+  - Drive was consistent at the end: seed 42 had 7 of 30 epochs (table row 7 = log epoch index 6, val AUC 0.82701). Its best and `_last` checkpoints finished uploading at 01:01 and 01:02 MST. Only epoch 8 was lost.
+  - Log saved to `results/swinl/logs/`.
+- **Session 4 (G4 "G4-1" assigned 01:32 MST, 7 Nov; Swin-L resumed exactly at epoch 8, best 0.82701).**
+  - At 02:51 VS Code lost its connection: the server's Jupyter address returned 404, the cell showed "Failed to connect to the remote Jupyter Server", and VS Code disposed its local kernel. The Mac stayed awake.
+  - **The server kept training anyway.** Colab still listed it, and it was still charging. The seed-42 epoch table on Drive gained row 13 at 03:01 MST.
+  - So a VS Code disconnect alone doesn't stop training; the lid-closure case differed because the whole Mac, including the Colab extension, went to sleep.
+  - Progress from here is followed through Drive and the Colab extension log, since the notebook no longer receives output.
+  - **The server then ended at ~03:01 MST, about 10 min after the disconnect,** right after epoch 13 was saved. The Colab log showed it listed at 02:56:42 and gone by 03:01:42. Same pattern as the lid closure: once the kernel connection is gone, Colab ends the server within ~10–15 min.
+  - Drive at the end: 13 epoch-table rows and `_last.pth.tar` updated at 03:01. Log saved to `results/swinl/logs/` (session 4).
+  - The VS Code-side logs show no cause: token valid (refreshed 02:27), same endpoint, Mac awake. Most likely Colab reclaimed the pay-as-you-go G4 (server age 1 h 18 min); not confirmed.
+- **Session 5 (G4 assigned 03:15 MST, runner 03:20).** Resumed at `epoch=0012 (best val_auc so far=0.85026)`, not 0013. So the `_last.pth.tar` that survived on Drive was epoch 12's: epoch 13's upload never completed. Epoch 13 is redone, and the engine trims the epoch table to 12 rows on resume.
+  - Seed 42 finished all 30 epochs on this server (no further loss). Best val AUC 0.86250 at epoch index 28. Both headline seeds were tested, and the runner printed `RUNNER: SwinL finished 2026-11-07T14:41:37+00:00` (07:41 MST), then started Swin V2-B on the same server. Balance at 07:42: 357.0 units.
+- **Swin-L done (7 Nov 2026).** Screening (seed 13) and headline (seeds 13, 42) are trained and tested.
+  - Filed in `results/swinl/` (results txt, `models.log`, epoch tables, 5 env jsons, session 1–5 logs). Fetched from Drive through the Drive connector; every file's size matches Drive.
+  - Checked against the run logs: all 90 epoch-table rows match a logged val_loss (±0.00005 rounding), and the test mAUCs match: screening 0.7355, headline 0.7822 / 0.7843.
+  - `results/paper/` rebuilt with Ark+, Swin-L and DenseNet-121.
+  - Checkpoints and prediction CSVs are still only on Drive (`ark_plus_chexpert_checkpoints/Models/Classification/CheXpert/_protocol1_swinl_*`).
+- **Swin V2-B started 07:41 MST (7 Nov), session 5.**
+  - It builds `microsoft/swinv2-base-patch4-window12-192-22k` through transformers. The load report lists only the hub classifier head as unexpected.
+  - The "Swin-B (224, window7) built OK" line comes from the notebook's timm install check, not the trained model.
+  - Speed: ~0.47 s/step, versus 0.27 for Swin-L.
 
 ## 2026-11-05: read this first
 
