@@ -94,6 +94,17 @@ kept separate so it doesn't get buried in narrative.
   - The "headline (3 seeds …)" print is an old label. `SEEDS_HEADLINE = [13, 42]`.
   - Still to run for Swin V2-B: 17 epochs of seed 13 + 30 of seed 42 ≈ 18.2 h, plus two ~14-min tests ≈ 190 units.
   - Log saved to `results/swinv2b/logs/` (session 6). Balance after: 279.1 units, 0/h.
+- **Session 7 (8 Nov, 08:33–16:31 EST; Ian travelling, Mac on Eastern time): Swin V2-B headline seed 13 finished.**
+  - The resume printed `resumed at epoch=0013 (best val_auc so far=0.86568)` as expected.
+  - Seed 13 finished all 30 epochs. The epoch table (30 rows) was saved 15:31:48 EST and `models.log` lists run_0. Best is still index 5 (0.8657).
+  - Seed 42 (run_1) started from scratch (`no checkpoint found`).
+    - Index 0 had val AUC 0.7905; index 1 had 0.8661 (best).
+    - `_last` (index 1) was saved 16:20:29 EST.
+  - Colab ended the server at ~16:31 EST, after 7 h 58 min (the usual 8-h limit; not removed by hand). Epoch 2 was at step 1800/2975, so ~14 min was lost.
+  - A resume starts seed 42 at index 2.
+  - Still to run for Swin V2-B: 28 epochs ≈ 10.9 h, plus two ~14-min tests ≈ 115 units.
+  - The previous Claude session's background tasks (caffeinate, watchers) stopped when it closed; they were restarted at 15:28 EST.
+  - Log saved to `results/swinv2b/logs/` (session 7). Balance after: 198.7 units, 0/h.
 
 ## 2026-11-05: read this first
 
