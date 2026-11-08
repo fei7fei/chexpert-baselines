@@ -84,6 +84,16 @@ kept separate so it doesn't get buried in narrative.
     - A resume starts at index 18; at most part of one epoch is lost.
   - **Reading Drive timestamps:** the notebook file on the Mac lags the server by up to an epoch. Map epoch-table rows by file size (e.g. 667 B = 12 rows), not by the last line visible in VS Code.
   - Log saved to `results/swinv2b/logs/` (session 5). Balance after: 342.8 units, 0/h.
+- **Session 6 (12:51–19:12 MST): Swin V2-B screening finished; headline paused for Ian's travel.**
+  - The runner skipped Swin-L correctly: no retraining, no re-testing. Swin V2-B printed `resumed at epoch=0018 (best val_auc so far=0.87010)`.
+  - Screening: epochs 18–29 ran; none beat index 11 (0.8701). Test mAUC 0.7895 (one seed). The test pass took 13 min 35 s.
+  - Headline seed 13: 13 of 30 epochs done (indices 0–12), at 23.3 min per epoch. Best val AUC 0.8657 at index 5, saved 16:26:55.
+  - Ian interrupted the cell and removed the server at 19:12:46.
+    - The epoch table (13 rows) finished uploading at 19:08:48, and `_last` (index 12, 1,043,610,853 B) at 19:09:52, both before the stop.
+    - A resume starts at index 13; about 3 min of training was lost.
+  - The "headline (3 seeds …)" print is an old label. `SEEDS_HEADLINE = [13, 42]`.
+  - Still to run for Swin V2-B: 17 epochs of seed 13 + 30 of seed 42 ≈ 18.2 h, plus two ~14-min tests ≈ 190 units.
+  - Log saved to `results/swinv2b/logs/` (session 6). Balance after: 279.1 units, 0/h.
 
 ## 2026-11-05: read this first
 
