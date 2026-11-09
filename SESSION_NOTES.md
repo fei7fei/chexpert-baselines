@@ -105,6 +105,21 @@ kept separate so it doesn't get buried in narrative.
   - Still to run for Swin V2-B: 28 epochs ≈ 10.9 h, plus two ~14-min tests ≈ 115 units.
   - The previous Claude session's background tasks (caffeinate, watchers) stopped when it closed; they were restarted at 15:28 EST.
   - Log saved to `results/swinv2b/logs/` (session 7). Balance after: 198.7 units, 0/h.
+- **Session 8 (8 Nov 18:09 – 9 Nov 00:59 EST): Swin V2-B seed 42, indices 2–18.**
+  - The resume printed `resumed at epoch=0002 (best val_auc so far=0.86610)`.
+  - Best stayed at index 5 (0.86783); indices 6–18 did not improve.
+  - Ian bought 500 units during this session.
+  - Ian stopped the server by hand at 00:59, right after index 18's `_last` finished uploading (00:58:10), so that a fresh ~8-h server would run overnight. About 300 steps of index 19 were lost.
+  - Log saved to `results/swinv2b/logs/` (session 8). Balance after: 630.7 units.
+- **Session 9 (9 Nov, from 01:02 EST): Swin V2-B finished; ConvNeXt V2-B started.**
+  - The resume printed `resumed at epoch=0019 (best val_auc so far=0.86783)`. Screening and seed 13 were skipped, not retrained.
+  - Seed 42 finished all 30 epochs (best still index 5). Both headline tests ran, and the runner printed `RUNNER: SwinB finished 2026-11-09T11:04:31+00:00` (06:04 EST).
+  - Held-out test, headline: AUC 0.8085 (seed 13) and 0.8064 (seed 42), i.e. 0.806–0.809. Screening test AUC 0.7895.
+  - Best validation epochs (0-based index): screening 11; headline 5 and 5.
+  - Results filed to `results/swinv2b/`: 2 results files, 3 epoch tables, 2 `models.log`, 5 env files. Sizes match Drive. All 5 env files show bf16, `protocol1-baselines-v1`, batch 64, and split fingerprints identical to Swin-L's. `results/paper/` rebuilt; its Swin V2-B rows match the run log.
+  - Checkpoints and prediction CSVs are still only on Drive (`swinb_chexpert_checkpoints/`).
+  - ConvNeXt V2-B started at 06:04 EST on the same server, from scratch (`no checkpoint found` for screening). Balance at 06:05: 581.1 units.
+  - Swin V2-B part of the log saved to `results/swinv2b/logs/` (session 9).
 
 ## 2026-11-05: read this first
 
