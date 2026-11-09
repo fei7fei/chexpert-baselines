@@ -120,6 +120,10 @@ kept separate so it doesn't get buried in narrative.
   - Checkpoints and prediction CSVs are still only on Drive (`swinb_chexpert_checkpoints/`).
   - ConvNeXt V2-B started at 06:04 EST on the same server, from scratch (`no checkpoint found` for screening). Balance at 06:05: 581.1 units.
   - Swin V2-B part of the log saved to `results/swinv2b/logs/` (session 9).
+  - ConvNeXt V2-B speed: 0.366 s/step (screening epoch ≈ 3.6 min, headline epoch ≈ 18.2 min). Estimated total ≈ 20.5 h ≈ 205–215 units.
+  - ConvNeXt V2-B screening finished: best val AUC 0.87259 at index 4; held-out test mAUC 0.7856. Headline seed 13 (run_0) started from scratch.
+  - Colab ended the server at 09:12 EST, after 8 h 10 min. Headline seed 13 had 3 epochs (indices 0–2; best 0.86971 at index 1). `_last` (index 2) finished uploading at 09:00:45. Index 3 was at step 2050/2975, so ~13 min was lost. A resume starts seed 13 at index 3.
+  - Full log saved to `results/convnextv2/logs/` (session 9). Balance after: 549.3 units.
 
 ## 2026-11-05: read this first
 
