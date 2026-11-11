@@ -124,6 +124,12 @@ kept separate so it doesn't get buried in narrative.
   - ConvNeXt V2-B screening finished: best val AUC 0.87259 at index 4; held-out test mAUC 0.7856. Headline seed 13 (run_0) started from scratch.
   - Colab ended the server at 09:12 EST, after 8 h 10 min. Headline seed 13 had 3 epochs (indices 0–2; best 0.86971 at index 1). `_last` (index 2) finished uploading at 09:00:45. Index 3 was at step 2050/2975, so ~13 min was lost. A resume starts seed 13 at index 3.
   - Full log saved to `results/convnextv2/logs/` (session 9). Balance after: 549.3 units.
+- **No G4 available, 9 Nov 12:12 EST → 10 Nov 13:01 EST (last failed request).** 15 G4 requests failed in the VS Code Colab log (`WaitOperationTimeoutError ... timed out after 200s`, later `DEADLINE_EXCEEDED`). No server was assigned and nothing was charged (balance stayed 549.25).
+  - **Decision (Ian, 9 Nov): G4 only.** No A100 or L4 fallback, so that no GPU change has to be reported. If no G4 is free, wait and retry.
+- **Session 10 (11 Nov, from 02:01 EST): ConvNeXt V2-B headline seed 13 resumed.**
+  - G4 assigned at 02:01 EST, runtime 2026.07, torch 2.11.0+cu128 (same as every earlier session). Code tag `protocol1-baselines-v1`, all 5 md5s match.
+  - Swin-L, Swin V2-B and the ConvNeXt V2-B screening were skipped as finished. Headline run_0: `=> resumed at epoch=0003 (best val_auc so far=0.86971)`, an exact resume from `_last`.
+  - Speed 0.365 s/step. Index 3 finished at 02:26 EST (val AUC 0.8595, no improvement); `_last` and the epoch table (4 rows) were on Drive at 02:26:37. Balance at 02:26: 545.5 units.
 
 ## 2026-11-05: read this first
 
