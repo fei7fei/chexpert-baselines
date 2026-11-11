@@ -130,6 +130,9 @@ kept separate so it doesn't get buried in narrative.
   - G4 assigned at 02:01 EST, runtime 2026.07, torch 2.11.0+cu128 (same as every earlier session). Code tag `protocol1-baselines-v1`, all 5 md5s match.
   - Swin-L, Swin V2-B and the ConvNeXt V2-B screening were skipped as finished. Headline run_0: `=> resumed at epoch=0003 (best val_auc so far=0.86971)`, an exact resume from `_last`.
   - Speed 0.365 s/step. Index 3 finished at 02:26 EST (val AUC 0.8595, no improvement); `_last` and the epoch table (4 rows) were on Drive at 02:26:37. Balance at 02:26: 545.5 units.
+  - Colab ended the server at about 10:01 EST, after 7 h 59 min. Headline seed 13 has 29 of 30 epochs (indices 0–28). Best is still 0.86971 at index 1; no later epoch improved it (val AUC 0.7569 at index 28). Index 29 was at step 100/2975.
+  - Drive after the end: epoch table 29 rows (15:00:44Z); `_last` rewritten at 15:01:14Z (1,053,063,445 B), seconds before the server went away. A resume should print `resumed at epoch=0029`; check it.
+  - Full log saved to `results/convnextv2/logs/` (session 10). Balance after: 469.2 units (80.0 used this session).
 
 ## 2026-11-05: read this first
 
