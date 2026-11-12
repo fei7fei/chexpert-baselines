@@ -133,6 +133,28 @@ kept separate so it doesn't get buried in narrative.
   - Colab ended the server at about 10:01 EST, after 7 h 59 min. Headline seed 13 has 29 of 30 epochs (indices 0–28). Best is still 0.86971 at index 1; no later epoch improved it (val AUC 0.7569 at index 28). Index 29 was at step 100/2975.
   - Drive after the end: epoch table 29 rows (15:00:44Z); `_last` rewritten at 15:01:14Z (1,053,063,445 B), seconds before the server went away. A resume should print `resumed at epoch=0029`; check it.
   - Full log saved to `results/convnextv2/logs/` (session 10). Balance after: 469.2 units (80.0 used this session).
+- **Session 11 (11 Nov, from 14:57 EST): ConvNeXt V2-B seed 13 finished; seed 42 indices 0–23.**
+  - `resumed at epoch=0029 (best val_auc so far=0.86971)`. Index 29 did not improve, so seed 13 (run_0) finished with best 0.86971 at index 1.
+  - Seed 42 (run_1) started from scratch. Best 0.87374 at index 3; indices 4–23 did not improve (val loss rising from index 10).
+  - Ian ended the server by hand at about 22:38 EST, after index 23's epoch table (24 rows) and `_last` were on Drive, to get a fresh ~8-h server.
+  - Log saved to `results/convnextv2/logs/` (session 11).
+- **Session 12 (11 Nov 23:09 – 12 Nov ~00:59 EST): seed 42 indices 24–27.**
+  - Three G4 requests failed first (22:52, 22:59, 23:05 EST); a G4 was assigned at 23:09.
+  - The first Run All failed: the title, nvidia-smi and section-1 (Google Drive) cells had been deleted from `Run_All_Baselines_Colab.ipynb`, so Drive was never mounted. The runner then created a local `/content/drive`, and every model failed with `Mountpoint must not already contain files`.
+  - Fix (not yet committed): the deleted cells were restored from git. The Drive cell now moves a local, unmounted `/content/drive` aside before mounting, and the runner stops at once with an assert if Drive is not mounted.
+  - Run All then resumed: `resumed at epoch=0024 (best val_auc so far=0.87374)`.
+  - The Mac's lid was closed at 00:46 EST on battery, so the Mac slept (`Clamshell Sleep`). Colab ended the server; VS Code found it gone at 00:59. `caffeinate` does not stop lid-close sleep.
+  - Index 27 finished while the Mac was asleep: epoch table 28 rows (05:48:46Z) and `_last` (05:49:17Z, 1,053,062,485 B) on Drive. Index 28 was lost part-way (~10 min).
+  - Log saved to `results/convnextv2/logs/` (session 12). Balance after: 370.9 units.
+- **Session 13 (12 Nov, from 01:01 EST): ConvNeXt V2-B finished; RAD-DINO started.**
+  - `resumed at epoch=0028 (best val_auc so far=0.87374)`. Indices 28–29 did not improve.
+  - Both headline tests ran; `RUNNER: ConvNeXtV2 finished 2026-11-12T07:08:37+00:00` (02:08 EST).
+  - Held-out test, headline: AUC 0.7899 (seed 13) and 0.8070 (seed 42), i.e. 0.790–0.807. Screening test AUC 0.7856.
+  - Best validation epochs (0-based index): screening 4; headline 1 and 3. Val loss rises steeply in late epochs (final val loss 0.720 and 0.678), so later epochs overfit.
+  - Results filed to `results/convnextv2/`: 2 results files, 3 epoch tables, 2 `models.log`, 5 env files. Sizes match Drive. All 5 env files show fp16, batch 64, RTX PRO 6000, and code md5s and split fingerprints identical to Swin-L's. Best val AUC and test mAUC match the run log. `results/paper/` rebuilt (backup of the previous version kept outside the repo); only the ConvNeXt V2-B rows changed.
+  - Checkpoints and prediction CSVs are still only on Drive (`convnextv2_chexpert_checkpoints/`).
+  - RAD-DINO started at 02:08 EST on the same server, from scratch (`no checkpoint found` for screening): fp16, 1 × 64 images per step.
+  - RAD-DINO speed: 0.138 s/step; screening epoch ≈ 1.7 min (index 2 val AUC 0.85034). Estimate, not measured: headline epoch ≈ 7–7.5 min; all of RAD-DINO ≈ 8.5–9 h ≈ 85–90 units. Balance at 02:09: 359.7 units.
 
 ## 2026-11-05: read this first
 
