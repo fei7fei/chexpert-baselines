@@ -155,6 +155,22 @@ kept separate so it doesn't get buried in narrative.
   - Checkpoints and prediction CSVs are still only on Drive (`convnextv2_chexpert_checkpoints/`).
   - RAD-DINO started at 02:08 EST on the same server, from scratch (`no checkpoint found` for screening): fp16, 1 × 64 images per step.
   - RAD-DINO speed: 0.138 s/step; screening epoch ≈ 1.7 min (index 2 val AUC 0.85034). Estimate, not measured: headline epoch ≈ 7–7.5 min; all of RAD-DINO ≈ 8.5–9 h ≈ 85–90 units. Balance at 02:09: 359.7 units.
+  - RAD-DINO screening training finished at 02:50 EST: best val AUC 0.87044 at index 8; held-out test mAUC 0.8015.
+  - Headline seed 13 (run_0) finished all 30 epochs at 06:18 EST: best val AUC 0.88033 at index 3. Measured headline epoch ≈ 6.6 min.
+  - Seed 42 (run_1): indices 0–22 done (best 0.87334 at index 3); `_last` saved 08:56 EST, epoch table 23 rows.
+  - Colab ended the server at 09:01 EST (the usual ~8-h limit; Mac awake on AC, lid open). Index 23 was at step 2800/2975, so ~6 min was lost.
+  - Log saved to `results/raddino/logs/` and `results/convnextv2/logs/` (session 13). Balance after: 291.0 units.
+- **Session 14 (12 Nov, 12:35 – 13:52 EST): RAD-DINO finished. All 5 baselines are done.**
+  - The first G4 request (12:35) timed out in VS Code at 12:38 (`LongRunningOperationError ... DEADLINE_EXCEEDED`), but Colab assigned the server anyway at ~12:39. VS Code never stored it, so the notebook showed "Select Kernel" with no Colab server to pick, while Colab billed 10.05/h for it.
+  - **Colab: Remove Server** is hidden until VS Code owns a server (`enablement: colab.hasAssignedServer`), and **Auto Connect** would have created a new *CPU* server (it only reuses servers VS Code stored). Fix: New Colab Server → G4 (`nbg4`, 12:46), then **Colab: Remove Server** → the stranded one, listed as "Untitled" / "Colab Web Server" (removed 12:47). Then **Select Kernel → Colab → nbg4 → Python 3 (ipykernel)**. The "Select a Python Environment" list shows only the Mac's local Pythons; use its ← arrow to reach the Colab entry.
+  - A VS Code window reload at 12:40 stopped the Claude session's background tasks (caffeinate, watchers); they were restarted.
+  - Run All at 12:56: `resumed at epoch=0023 (best val_auc so far=0.87334)`. Earlier models, RAD-DINO screening and seed 13 were skipped as finished. Indices 23–29 did not improve.
+  - Both headline tests ran; `RUNNER: RadDino finished 2026-11-12T18:52:17+00:00` (13:52 EST), then `RUNNER: queue complete`.
+  - Held-out test, headline: AUC 0.8149 (seed 13) and 0.8162 (seed 42), i.e. 0.815–0.816. Screening test AUC 0.8015.
+  - Best validation epochs (0-based index): screening 8; headline 3 and 3. Lowest val loss at index 3 (0.3664) and 2 (0.3638); final val loss 0.716 and 0.722, so later epochs overfit.
+  - Results filed to `results/raddino/`: 2 results files, 3 epoch tables (30 rows each), 2 `models.log`, 2 env files. Sizes match Drive. Both env files differ from ConvNeXt V2-B's only in time and model name (fp16, 1 × 64, RTX PRO 6000, same code md5s and split fingerprints). Best val AUC and test mAUC match the run log. `results/paper/` rebuilt (backup kept outside the repo); only RAD-DINO rows were added.
+  - Checkpoints and prediction CSVs are still only on Drive (`raddino_chexpert_checkpoints/`).
+  - Log saved to `results/raddino/logs/` (session 14). Balance at 13:53: 280.7 units.
 
 ## 2026-11-05: read this first
 
