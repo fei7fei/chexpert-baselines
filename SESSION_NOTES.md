@@ -6,6 +6,28 @@ Claude Code session anywhere), read this first; it has the context a plain
 `git log` won't give you. The technical protocol itself is in `PROTOCOL.md`,
 kept separate so it doesn't get buried in narrative.
 
+## 2026-11-12: analysis phase started (all six models trained)
+
+Plan, in order. It follows the submitted PDFs (golden rule) and the SPIE reviewer comments (`Reviewer Comment.png`):
+
+1. **Question (b) on all six models: validation-tuned thresholds and calibration.** `AllModels_Gaps_Colab.ipynb`, Figure 1's method unchanged. One short Colab run on a G4 (no training). **Not run yet.**
+2. **Reviewer additions, computed on the Mac from `results/`:** specificity / false-positive rate / PPV next to every sensitivity; accuracy defined (mean over the 5 competition classes of per-class accuracy at the stated threshold); confidence intervals. The AUC intervals are done (below); the operating-point metrics wait for step 1's output.
+3. **Question (c): long-tail loss on all six models** (class-weighted BCE and/or asymmetric loss, screening tier). Needs new training; not started, cost not yet agreed with Ian.
+4. Manuscript and poster: spell out acronyms at first use; frame the contribution around the pretraining comparison.
+
+Done on 12 Nov:
+
+- **Per-image test predictions are now on the Mac** for all 12 headline runs: `results/<model>/_protocol1_<model>_headline/<run>.csv` and `gt.csv` (downloaded from Drive; sizes match). All six `gt.csv` are byte-identical (md5 `46f65834…`). Macro-AUC recomputed from each file equals the logged value to 4 decimals. `paper_outputs.py` output is unchanged by the new files.
+- **The held-out test set was rebuilt locally** from `chestdata/train.csv` with the protocol's own split code: 33,055 images, **9,681 patients**, labels equal to `gt.csv` row for row. That gives each test row's patient ID.
+- **`analysis/uncertainty.py` (new):** patient-level bootstrap (2,000 resamples of patients, percentile 95% intervals) for per-run macro and per-class AUC, plus paired AUC differences for every pair of models. Output: `results/paper/uncertainty/`. Its fast weighted AUC equals scikit-learn's to 1e-16, ties included.
+  - Test-set intervals are narrow (about ±0.004 on macro-AUC). Seed-to-seed spread is as large or larger (Ark+ 0.006, ConvNeXt V2-B 0.017), so with two seeds the binding uncertainty is training variability.
+  - A difference is reported as holding across seeds only if all four seed pairings (2 × 2) agree in sign and each interval excludes 0. It holds for Ark+ vs Swin-L (+0.023, pairings +0.019 to +0.027) and for RAD-DINO vs every other model. It does **not** hold for Ark+ vs Swin V2-B, Ark+ vs ConvNeXt V2-B, Swin V2-B vs ConvNeXt V2-B, or DenseNet-121 vs ConvNeXt V2-B.
+- **`AllModels_Gaps_Colab.ipynb` changed (additive):**
+  - It also writes `gap1/runs/<run>_val.csv` (validation labels and predictions) and `<run>_fit.json` (thresholds per policy, temperature, ECE, md5 of the test predictions used) so step 2 needs no GPU.
+  - It checks that the validation macro-AUC recomputed from its own predictions equals `aucMAX` stored in each checkpoint (tolerance 0.002), and stops if not.
+  - **Ark+'s runs are on Michael's Drive**, the baselines on Ian's. The notebook looks for a Drive shortcut `MyDrive/_protocol1_arkplus_headline` (folder id `1KBL5tYpszP7MUsbcndhBdHc_7h4sKuwQ`) and stops early with instructions if it is missing. Michael's headline checkpoints and prediction files all date from 4 Aug, before the 5 Aug accidental resume.
+- **Open:** the Mac's `checkpoints/` and `_archive/` folders were no longer in `SPIE-CAD/` on the evening of 12 Nov (root folder modified 21:02). Not moved by Claude; asked Ian.
+
 ## 2026-11-06: how the baseline runs work now
 
 - **Where they run.** From VS Code, using the Google Colab extension (`google.colab` 0.9.7, already installed on Ian's Mac). Steps (checked against the extension's own code):
