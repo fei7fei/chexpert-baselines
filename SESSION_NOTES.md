@@ -171,6 +171,7 @@ kept separate so it doesn't get buried in narrative.
   - Results filed to `results/raddino/`: 2 results files, 3 epoch tables (30 rows each), 2 `models.log`, 2 env files. Sizes match Drive. Both env files differ from ConvNeXt V2-B's only in time and model name (fp16, 1 × 64, RTX PRO 6000, same code md5s and split fingerprints). Best val AUC and test mAUC match the run log. `results/paper/` rebuilt (backup kept outside the repo); only RAD-DINO rows were added.
   - Checkpoints and prediction CSVs are still only on Drive (`raddino_chexpert_checkpoints/`).
   - Log saved to `results/raddino/logs/` (session 14). Balance at 13:53: 280.7 units.
+  - The server stayed assigned, idle, until it was removed at 20:47 EST (~7 h, ~69.5 units). Balance after: 211.2 units.
 
 ## 2026-11-05: read this first
 
